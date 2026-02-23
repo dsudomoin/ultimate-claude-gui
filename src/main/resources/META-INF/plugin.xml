@@ -1,0 +1,56 @@
+<idea-plugin>
+    <id>ru.dsudomoin.claude-code-gui</id>
+    <name>Claude Code GUI</name>
+    <vendor url="https://github.com/dsudomoin">dsudomoin</vendor>
+    <description><![CDATA[
+        Native IntelliJ plugin for AI-powered coding with Claude and Codex.
+        Direct HTTP API calls, no JCEF/Node.js — pure Kotlin + Swing.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.vcs</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Tool Window -->
+        <toolWindow id="Claude Code" anchor="right"
+                    icon="AllIcons.Toolwindows.ToolWindowPalette"
+                    factoryClass="ru.dsudomoin.claudecodegui.ui.toolwindow.ClaudeToolWindowFactory"/>
+
+        <!-- Services -->
+        <applicationService
+                serviceImplementation="ru.dsudomoin.claudecodegui.service.SettingsService"/>
+        <applicationService
+                serviceImplementation="ru.dsudomoin.claudecodegui.service.OAuthCredentialService"/>
+
+        <projectService
+                serviceImplementation="ru.dsudomoin.claudecodegui.core.session.SessionManager"/>
+
+        <!-- Settings -->
+        <applicationConfigurable parentId="tools"
+                                 instance="ru.dsudomoin.claudecodegui.settings.ClaudeSettingsConfigurable"
+                                 id="ru.dsudomoin.claudecodegui.settings"
+                                 displayName="Claude Code GUI"/>
+
+        <!-- Notifications -->
+        <notificationGroup id="Claude Code" displayType="BALLOON"/>
+    </extensions>
+
+    <actions>
+        <action id="Claude.SendSelection"
+                class="ru.dsudomoin.claudecodegui.action.SendSelectionAction"
+                text="Send to Claude"
+                description="Send selected code or file context to Claude Code chat"
+                icon="AllIcons.Actions.Execute">
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt K"/>
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
+
+        <action id="Claude.GenerateCommitMessage"
+                class="ru.dsudomoin.claudecodegui.action.GenerateCommitAction"
+                text="Generate Commit Message with Claude"
+                description="Generate a commit message from staged changes using Claude AI"
+                icon="AllIcons.Actions.InlayRenameInNoCodeFilesActive">
+            <add-to-group group-id="Vcs.MessageActionGroup" anchor="last"/>
+        </action>
+    </actions>
+</idea-plugin>

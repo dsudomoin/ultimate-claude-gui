@@ -1,0 +1,9 @@
+{
+  "name": "claude-code-gui-bridge",
+  "version": "1.0.0",
+  "description": "Node.js bridge for Claude Agent SDK",
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/claude-code": "^1"
+  }
+}
