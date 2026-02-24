@@ -116,7 +116,6 @@ async function main() {
     maxTurns = 100,
     streaming = true,
     systemPrompt,
-    claudePath,
   } = input;
 
   if (command === 'getSlashCommands') {
@@ -175,7 +174,7 @@ async function main() {
         maxTurns: 0,
         canUseTool: async () => ({ behavior: 'deny', message: 'Config loading only' }),
       };
-      if (claudePath) opts.pathToClaudeCodeExecutable = claudePath;
+      // SDK uses its built-in cli.js — avoids Windows .cmd spawn issues
 
       const result = query({ prompt: inputStream, options: opts });
 
@@ -228,7 +227,7 @@ async function main() {
       includePartialMessages: streaming !== false,
     };
 
-    if (claudePath) options.pathToClaudeCodeExecutable = claudePath;
+    // SDK uses its built-in cli.js — avoids Windows .cmd spawn issues
     if (model) options.model = model;
     if (sessionId) options.resume = sessionId;
     if (systemPrompt) options.appendSystemPrompt = systemPrompt;

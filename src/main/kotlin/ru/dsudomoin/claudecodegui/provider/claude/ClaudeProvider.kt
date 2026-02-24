@@ -131,7 +131,6 @@ class ClaudeProvider : AiProvider {
         }
 
         val cwd = projectDir ?: System.getProperty("user.dir")
-        val claudePath = NodeDetector.detectClaude()
 
         val payload = buildJsonObject {
             put("command", "send")
@@ -141,7 +140,6 @@ class ClaudeProvider : AiProvider {
             if (model.isNotBlank()) put("model", model)
             if (!systemPrompt.isNullOrBlank()) put("systemPrompt", systemPrompt)
             put("streaming", streaming)
-            if (claudePath != null) put("claudePath", claudePath)
             sessionId?.let { put("sessionId", it) }
         }
 
@@ -247,11 +245,9 @@ class ClaudeProvider : AiProvider {
             val nodePath = NodeDetector.detect() ?: return@withContext emptyList()
             val cwd = projectDir ?: System.getProperty("user.dir")
 
-            val claudePath = NodeDetector.detectClaude()
             val payload = buildJsonObject {
                 put("command", "getSlashCommands")
                 put("cwd", cwd)
-                if (claudePath != null) put("claudePath", claudePath)
             }
 
             val process = ProcessBuilder(nodePath, BridgeManager.bridgeScript.absolutePath)
