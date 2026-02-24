@@ -19,6 +19,10 @@
   <a href="#building-from-source">Build</a>
 </p>
 
+<p align="center">
+  <b>🇬🇧 English</b> | <a href="README.ru.md">🇷🇺 Русский</a>
+</p>
+
 ---
 
 ## Why Ultimate Claude UI?
