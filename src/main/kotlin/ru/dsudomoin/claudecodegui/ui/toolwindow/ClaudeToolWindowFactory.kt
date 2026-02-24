@@ -30,12 +30,16 @@ class ClaudeToolWindowFactory : ToolWindowFactory {
         ThemeManager.initialize()
         addNewTab(project, toolWindow)
 
-        // When last tab is closed, auto-create a new empty one
+        // Manage tab closeable state: hide X when only 1 tab remains
         toolWindow.contentManager.addContentManagerListener(object : ContentManagerListener {
+            override fun contentAdded(event: ContentManagerEvent) {
+                updateTabCloseableState(toolWindow)
+            }
             override fun contentRemoved(event: ContentManagerEvent) {
                 if (toolWindow.contentManager.contentCount == 0) {
                     addNewTab(project, toolWindow)
                 }
+                updateTabCloseableState(toolWindow)
             }
         })
 
@@ -66,18 +70,16 @@ class ClaudeToolWindowFactory : ToolWindowFactory {
             }
         ))
 
-        // Add "Rename" and "Close Tab" to the gear dropdown menu (⚙️ in tool window header)
+        // Gear dropdown: Rename only.
+        // Close Tab is NOT here — gear actions leak into tab right-click menu
+        // and always act on selectedContent (the active tab), not the right-clicked tab.
+        // Tab closing uses IntelliJ's built-in mechanism (isCloseable = true on each Content).
         val renameAction = object : AnAction(UcuBundle.message("toolwindow.rename"), UcuBundle.message("toolwindow.renameDesc"), AllIcons.Actions.Edit) {
             override fun actionPerformed(e: AnActionEvent) {
                 renameCurrentTab(project, toolWindow)
             }
         }
-        val closeAction = object : AnAction(UcuBundle.message("toolwindow.closeTab"), UcuBundle.message("toolwindow.closeTabDesc"), AllIcons.Actions.Close) {
-            override fun actionPerformed(e: AnActionEvent) {
-                closeCurrentTab(toolWindow)
-            }
-        }
-        toolWindow.setAdditionalGearActions(DefaultActionGroup(renameAction, closeAction))
+        toolWindow.setAdditionalGearActions(DefaultActionGroup(renameAction))
 
         // Double-click on tab area to rename
         SwingUtilities.invokeLater {
@@ -95,6 +97,14 @@ class ClaudeToolWindowFactory : ToolWindowFactory {
         }
         toolWindow.contentManager.addContent(content)
         toolWindow.contentManager.setSelectedContent(content)
+    }
+
+    private fun updateTabCloseableState(toolWindow: ToolWindow) {
+        val contentManager = toolWindow.contentManager
+        val closeable = contentManager.contentCount > 1
+        for (content in contentManager.contents) {
+            content.isCloseable = closeable
+        }
     }
 
     private var doubleClickInstalled = false
@@ -117,11 +127,6 @@ class ClaudeToolWindowFactory : ToolWindowFactory {
         val selectedContent = toolWindow.contentManager.selectedContent ?: return
         val container = selectedContent.component as? ChatContainerPanel ?: return
         container.toggleHistory()
-    }
-
-    private fun closeCurrentTab(toolWindow: ToolWindow) {
-        val content = toolWindow.contentManager.selectedContent ?: return
-        toolWindow.contentManager.removeContent(content, true)
     }
 
     private fun renameCurrentTab(project: Project, toolWindow: ToolWindow) {
