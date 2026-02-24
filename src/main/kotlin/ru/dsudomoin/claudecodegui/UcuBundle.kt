@@ -15,6 +15,15 @@ internal object UcuBundle {
     private val dynamicBundle = DynamicBundle(UcuBundle::class.java, BUNDLE)
 
     /**
+     * Custom control that skips fallback to JVM default locale.
+     * Without this, requesting Locale.ENGLISH when UcuBundle_en.properties doesn't exist
+     * would fall back to the JVM default locale (e.g. Russian) instead of the root bundle.
+     */
+    private val noDefaultLocaleFallback = object : ResourceBundle.Control() {
+        override fun getFallbackLocale(baseName: String, locale: Locale): Locale? = null
+    }
+
+    /**
      * Returns an explicit-locale ResourceBundle when user chose "en" or "ru",
      * or null to fall back to DynamicBundle (IDE default).
      */
@@ -30,7 +39,7 @@ internal object UcuBundle {
             "ru" -> Locale.of("ru")
             else -> return null
         }
-        return ResourceBundle.getBundle(BUNDLE, locale)
+        return ResourceBundle.getBundle(BUNDLE, locale, UcuBundle::class.java.classLoader, noDefaultLocaleFallback)
     }
 
     @JvmStatic

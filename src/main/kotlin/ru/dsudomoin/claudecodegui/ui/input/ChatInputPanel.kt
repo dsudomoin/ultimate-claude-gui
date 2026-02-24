@@ -4,6 +4,7 @@ import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CustomShortcutSet
+import com.intellij.ui.AnimatedIcon
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.event.CaretEvent
 import com.intellij.openapi.editor.event.CaretListener
@@ -22,6 +23,7 @@ import com.intellij.util.ui.JBUI
 import kotlinx.coroutines.*
 import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.command.SlashCommandRegistry
+import ru.dsudomoin.claudecodegui.service.ProjectFileIndexService
 import ru.dsudomoin.claudecodegui.service.PromptEnhancer
 import ru.dsudomoin.claudecodegui.service.SettingsService
 import ru.dsudomoin.claudecodegui.ui.dialog.PromptEnhancerDialog
@@ -96,6 +98,16 @@ class ChatInputPanel(
         textArea.caretPosition = textArea.text.length
     }
     private val enhanceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // ── File mentions (@-mentions) ─────────────────────────────────────────
+    private val mentionedFiles = mutableListOf<ProjectFileIndexService.FileEntry>()
+    private val mentionsPanel = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), JBUI.scale(4))).apply {
+        isOpaque = false
+    }
+    private val fileMentionPopup = FileMentionPopup { entry -> insertFileMention(entry) }
+    private val mentionSearchScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var mentionSearchJob: Job? = null
+
     private val settings = SettingsService.getInstance()
     private var selectedModelId: String = settings.state.claudeModel
     private var selectedModeId: String = settings.state.permissionMode
@@ -410,10 +422,16 @@ class ChatInputPanel(
         roundedPanel.add(scrollPane, BorderLayout.CENTER)
         roundedPanel.add(toolbar, BorderLayout.SOUTH)
 
-        // Main layout: attachments above the rounded input box
+        // Main layout: attachments + mention chips above the rounded input box
+        val topPanels = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = false
+            add(attachmentsPanel)
+            add(mentionsPanel)
+        }
         val mainBox = JPanel(BorderLayout()).apply {
             isOpaque = false
-            add(attachmentsPanel, BorderLayout.NORTH)
+            add(topPanels, BorderLayout.NORTH)
             add(roundedPanel, BorderLayout.CENTER)
         }
         add(mainBox, BorderLayout.CENTER)
@@ -428,6 +446,17 @@ class ChatInputPanel(
 
         textArea.addKeyListener(object : KeyAdapter() {
             override fun keyPressed(e: KeyEvent) {
+                // File mention popup navigation
+                if (fileMentionPopup.isVisible()) {
+                    when (e.keyCode) {
+                        KeyEvent.VK_UP -> { e.consume(); fileMentionPopup.moveUp(); return }
+                        KeyEvent.VK_DOWN -> { e.consume(); fileMentionPopup.moveDown(); return }
+                        KeyEvent.VK_TAB -> { e.consume(); fileMentionPopup.selectCurrent(); return }
+                        KeyEvent.VK_ENTER -> { e.consume(); fileMentionPopup.selectCurrent(); return }
+                        KeyEvent.VK_ESCAPE -> { e.consume(); fileMentionPopup.hide(); return }
+                    }
+                }
+
                 // Slash command popup navigation
                 if (slashPopup.isVisible()) {
                     when (e.keyCode) {
@@ -456,11 +485,11 @@ class ChatInputPanel(
             }
         })
 
-        // Slash command autocomplete trigger
+        // Slash command + @-mention autocomplete triggers
         textArea.document.addDocumentListener(object : javax.swing.event.DocumentListener {
-            override fun insertUpdate(e: javax.swing.event.DocumentEvent) = checkSlashPrefix()
-            override fun removeUpdate(e: javax.swing.event.DocumentEvent) = checkSlashPrefix()
-            override fun changedUpdate(e: javax.swing.event.DocumentEvent) = checkSlashPrefix()
+            override fun insertUpdate(e: javax.swing.event.DocumentEvent) { checkSlashPrefix(); checkMentionTrigger() }
+            override fun removeUpdate(e: javax.swing.event.DocumentEvent) { checkSlashPrefix(); checkMentionTrigger() }
+            override fun changedUpdate(e: javax.swing.event.DocumentEvent) { checkSlashPrefix(); checkMentionTrigger() }
         })
 
         // Register Cmd+V / Ctrl+V through IntelliJ action system — this is the only
@@ -523,6 +552,9 @@ class ChatInputPanel(
         com.intellij.openapi.application.ApplicationManager.getApplication().messageBus
             .connect().subscribe(ru.dsudomoin.claudecodegui.service.LanguageChangeListener.TOPIC,
                 ru.dsudomoin.claudecodegui.service.LanguageChangeListener { refreshLocale() })
+
+        // Warm up project file index for @-mentions
+        ProjectFileIndexService.getInstance(project).ensureIndexed()
     }
 
     // ── Public API ──────────────────────────────────────────────────────────
@@ -593,10 +625,137 @@ class ChatInputPanel(
         }
     }
 
+    // ── @-mention trigger & insertion ─────────────────────────────────────
+
+    private fun checkMentionTrigger() {
+        SwingUtilities.invokeLater {
+            val text = textArea.text
+            val caret = textArea.caretPosition
+            val atIndex = findMentionStart(text, caret)
+            if (atIndex >= 0) {
+                val query = text.substring(atIndex + 1, caret)
+                // Hide slash popup if mention popup is about to show
+                slashPopup.hide()
+                mentionSearchJob?.cancel()
+                mentionSearchJob = mentionSearchScope.launch {
+                    delay(150) // debounce
+                    val results = ProjectFileIndexService.getInstance(project).search(query)
+                    SwingUtilities.invokeLater {
+                        if (results.isNotEmpty()) {
+                            fileMentionPopup.show(results, roundedPanel)
+                        } else {
+                            fileMentionPopup.hide()
+                        }
+                    }
+                }
+            } else {
+                fileMentionPopup.hide()
+            }
+        }
+    }
+
+    /**
+     * Finds the position of @ that starts the current mention, or -1.
+     * @ must be at start of text or preceded by whitespace, and no whitespace between @ and caret.
+     */
+    private fun findMentionStart(text: String, caret: Int): Int {
+        if (caret <= 0 || caret > text.length) return -1
+        var i = caret - 1
+        while (i >= 0) {
+            val ch = text[i]
+            if (ch == '@') {
+                if (i == 0 || text[i - 1].isWhitespace()) return i
+                return -1
+            }
+            if (ch.isWhitespace() || ch == '\n') return -1
+            i--
+        }
+        return -1
+    }
+
+    private fun insertFileMention(entry: ProjectFileIndexService.FileEntry) {
+        // Add to mentions list (skip duplicates)
+        if (mentionedFiles.none { it.absolutePath == entry.absolutePath }) {
+            mentionedFiles.add(entry)
+            rebuildMentionsPanel()
+        }
+
+        // Remove the @query text from the text area (file is already shown as chip)
+        val text = textArea.text
+        val caret = textArea.caretPosition
+        val atIndex = findMentionStart(text, caret)
+        if (atIndex >= 0) {
+            val newText = text.substring(0, atIndex) + text.substring(caret)
+            textArea.text = newText
+            textArea.caretPosition = atIndex.coerceAtMost(newText.length)
+        }
+
+        fileMentionPopup.hide()
+    }
+
+    private fun rebuildMentionsPanel() {
+        mentionsPanel.removeAll()
+        for (entry in mentionedFiles) {
+            mentionsPanel.add(createMentionChip(entry))
+        }
+        mentionsPanel.revalidate()
+        mentionsPanel.repaint()
+    }
+
+    private fun createMentionChip(entry: ProjectFileIndexService.FileEntry): JComponent {
+        val chip = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(4), 0)).apply {
+            isOpaque = true
+            background = DROPDOWN_BG
+            border = BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(BORDER_NORMAL, 1),
+                JBUI.Borders.empty(2, 6, 2, 4)
+            )
+            toolTipText = entry.relativePath
+        }
+
+        // File type icon
+        val fileIcon = entry.virtualFile.fileType.icon
+        if (fileIcon != null) chip.add(javax.swing.JLabel(fileIcon))
+
+        // Filename label
+        chip.add(javax.swing.JLabel(entry.fileName).apply {
+            font = font.deriveFont(Font.PLAIN, JBUI.scale(11).toFloat())
+            foreground = TEXT_PRIMARY
+        })
+
+        // Remove button
+        chip.add(javax.swing.JButton(AllIcons.Actions.Close).apply {
+            preferredSize = Dimension(JBUI.scale(14), JBUI.scale(14))
+            maximumSize = preferredSize
+            isBorderPainted = false
+            isContentAreaFilled = false
+            isFocusPainted = false
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            toolTipText = UcuBundle.message("input.remove")
+            addActionListener {
+                mentionedFiles.remove(entry)
+                rebuildMentionsPanel()
+            }
+        })
+
+        return chip
+    }
+
+    /**
+     * Returns and clears all file mentions. Called by ChatPanel when sending a message.
+     */
+    fun consumeFileMentions(): List<ProjectFileIndexService.FileEntry> {
+        val result = mentionedFiles.toList()
+        mentionedFiles.clear()
+        rebuildMentionsPanel()
+        return result
+    }
+
     private fun sendMessage() {
         slashPopup.hide()
+        fileMentionPopup.hide()
         val text = textArea.text.trim()
-        if (text.isNotEmpty() || attachedImages.isNotEmpty()) {
+        if (text.isNotEmpty() || attachedImages.isNotEmpty() || mentionedFiles.isNotEmpty()) {
             onSend(text)
             textArea.text = ""
         }
@@ -634,6 +793,13 @@ class ChatInputPanel(
         isEnhancing = true
         val originalText = text
 
+        // Show loading state on button
+        SwingUtilities.invokeLater {
+            enhanceButton.icon = AnimatedIcon.Default()
+            enhanceButton.isEnabled = false
+            enhanceButton.toolTipText = UcuBundle.message("enhancer.enhancing")
+        }
+
         enhanceScope.launch {
             val enhanced = PromptEnhancer.enhance(
                 originalPrompt = originalText,
@@ -642,13 +808,17 @@ class ChatInputPanel(
 
             SwingUtilities.invokeLater {
                 isEnhancing = false
+                // Restore button state
+                enhanceButton.icon = AllIcons.Actions.Lightning
+                enhanceButton.isEnabled = true
+                enhanceButton.toolTipText = UcuBundle.message("enhancer.tooltip")
+
                 if (enhanced != null) {
                     val dialog = PromptEnhancerDialog(project, originalText, enhanced)
                     if (dialog.showAndGet()) {
                         textArea.text = enhanced
                     }
                 } else {
-                    // Enhancement failed silently — user can try again
                     LOG.warn("Prompt enhancement returned null")
                 }
             }

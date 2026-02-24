@@ -60,7 +60,11 @@ class ChatPanel(
     var customTitle: String? = null
 
     private var lastUsedTokens: Int = 0
-    data class QueuedMessage(val text: String, val images: List<File>)
+    data class QueuedMessage(
+        val text: String,
+        val images: List<File>,
+        val fileMentions: List<ru.dsudomoin.claudecodegui.service.ProjectFileIndexService.FileEntry> = emptyList()
+    )
 
     private val messageQueue = java.util.concurrent.ConcurrentLinkedQueue<QueuedMessage>()
 
@@ -334,10 +338,11 @@ class ChatPanel(
             // SDK commands fall through to doSendMessage
         }
 
-        // If currently streaming, queue the message for later (capture images now)
+        // If currently streaming, queue the message for later (capture images + mentions now)
         if (currentJob?.isActive == true) {
             val images = inputPanel.consumeAttachedImages()
-            messageQueue.add(QueuedMessage(text, images))
+            val mentions = inputPanel.consumeFileMentions()
+            messageQueue.add(QueuedMessage(text, images, mentions))
             queuePanel.rebuild(messageQueue.toList())
             return
         }
@@ -360,11 +365,16 @@ class ChatPanel(
         }
     }
 
-    private fun doSendMessage(text: String, preAttachedImages: List<File>? = null) {
+    private fun doSendMessage(
+        text: String,
+        preAttachedImages: List<File>? = null,
+        preFileMentions: List<ru.dsudomoin.claudecodegui.service.ProjectFileIndexService.FileEntry>? = null
+    ) {
         autoScrollToBottom = true
 
-        // Use pre-attached images (from queue) or consume from input panel
+        // Use pre-attached images/mentions (from queue) or consume from input panel
         val images = preAttachedImages ?: inputPanel.consumeAttachedImages()
+        val fileMentions = preFileMentions ?: inputPanel.consumeFileMentions()
 
         // Enrich text with IDE context and image paths for the API
         val sb = StringBuilder(text)
@@ -372,6 +382,29 @@ class ChatPanel(
         if (!text.startsWith("/") && !text.startsWith("From `") && !text.startsWith("File: `") && !text.startsWith("I'm working in")) {
             val ctx = getActiveFileContext()
             if (ctx != null) sb.append("\n\n_${ctx}_")
+        }
+
+        // Append referenced file contents for Claude context
+        if (fileMentions.isNotEmpty()) {
+            sb.append("\n\n_Referenced files:_")
+            for (mention in fileMentions) {
+                val label = if (mention.source == ru.dsudomoin.claudecodegui.service.ProjectFileIndexService.FileSource.LIBRARY) {
+                    "${mention.fileName} (${mention.libraryName ?: mention.relativePath})"
+                } else {
+                    mention.relativePath
+                }
+                sb.append("\n\nFile: `$label`")
+                try {
+                    // Read via VFS to support files inside JARs/ZIPs (library sources)
+                    val content = String(mention.virtualFile.contentsToByteArray(), mention.virtualFile.charset)
+                    val truncated = if (content.length > 50_000) {
+                        content.take(50_000) + "\n... (truncated, ${content.length} chars total)"
+                    } else content
+                    sb.append("\n```\n$truncated\n```")
+                } catch (_: Exception) {
+                    sb.append("\n(Could not read file)")
+                }
+            }
         }
 
         // Append image file references for the API (so Claude knows about the files)
@@ -705,7 +738,7 @@ class ChatPanel(
     private fun processQueue() {
         val next = messageQueue.poll() ?: return
         queuePanel.rebuild(messageQueue.toList())
-        doSendMessage(next.text, next.images)
+        doSendMessage(next.text, next.images, next.fileMentions)
     }
 
     private fun removeFromQueue(index: Int) {

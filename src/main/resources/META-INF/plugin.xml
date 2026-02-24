@@ -14,6 +14,7 @@
         <!-- Tool Window -->
         <toolWindow id="Claude Code" anchor="right"
                     icon="AllIcons.Toolwindows.ToolWindowPalette"
+                    canCloseContents="true"
                     factoryClass="ru.dsudomoin.claudecodegui.ui.toolwindow.ClaudeToolWindowFactory"/>
 
         <!-- Services -->
@@ -24,6 +25,8 @@
 
         <projectService
                 serviceImplementation="ru.dsudomoin.claudecodegui.core.session.SessionManager"/>
+        <projectService
+                serviceImplementation="ru.dsudomoin.claudecodegui.service.ProjectFileIndexService"/>
 
         <!-- Settings -->
         <applicationConfigurable parentId="tools"
