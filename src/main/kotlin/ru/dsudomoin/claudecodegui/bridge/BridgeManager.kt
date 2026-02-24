@@ -1,6 +1,7 @@
 package ru.dsudomoin.claudecodegui.bridge
 
 import com.intellij.openapi.diagnostic.Logger
+import ru.dsudomoin.claudecodegui.bridge.ProcessEnvironment.withNodeEnvironment
 import java.io.File
 import java.nio.file.Paths
 
@@ -98,8 +99,9 @@ object BridgeManager {
 
         log.info("Running npm install in ${bridgeDir.absolutePath}")
 
-        val process = ProcessBuilder(npmCmd, "install", "--production", "--no-optional")
+        val process = ProcessBuilder(npmCmd, "install", "--omit=dev", "--no-optional")
             .directory(bridgeDir)
+            .withNodeEnvironment(nodePath)
             .redirectErrorStream(true)
             .start()
 

@@ -20,6 +20,7 @@ import kotlinx.serialization.json.put
 import ru.dsudomoin.claudecodegui.bridge.BridgeManager
 import ru.dsudomoin.claudecodegui.bridge.NodeDetector
 import ru.dsudomoin.claudecodegui.bridge.ParsedEvent
+import ru.dsudomoin.claudecodegui.bridge.ProcessEnvironment.withNodeEnvironment
 import ru.dsudomoin.claudecodegui.bridge.SDKMessageParser
 import ru.dsudomoin.claudecodegui.core.model.Message
 import ru.dsudomoin.claudecodegui.core.model.StreamEvent
@@ -153,6 +154,7 @@ class ClaudeProvider : AiProvider {
                     BridgeManager.bridgeScript.absolutePath
                 )
                     .directory(BridgeManager.bridgeScript.parentFile)
+                    .withNodeEnvironment(nodePath)
                     .redirectErrorStream(false)
                     .start()
 
@@ -254,6 +256,7 @@ class ClaudeProvider : AiProvider {
 
             val process = ProcessBuilder(nodePath, BridgeManager.bridgeScript.absolutePath)
                 .directory(BridgeManager.bridgeScript.parentFile)
+                .withNodeEnvironment(nodePath)
                 .redirectErrorStream(false)
                 .start()
 
