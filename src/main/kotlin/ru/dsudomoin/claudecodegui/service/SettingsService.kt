@@ -21,7 +21,7 @@ class SettingsService : PersistentStateComponent<SettingsService.State> {
         var systemPrompt: String = "",
         var nodePath: String = "",
         var claudeExecutablePath: String = "",
-        var permissionMode: String = "bypassPermissions",
+        var permissionMode: String = "default",
         var streamingEnabled: Boolean = true,
         var thinkingEnabled: Boolean = true,
         var themePresetId: String = "default",
