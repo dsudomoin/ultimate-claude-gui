@@ -173,8 +173,8 @@ Full **English** and **Russian** translations. Follows IDE language by default, 
 ### From Source
 
 ```bash
-git clone https://github.com/anthropics/ultimate-claude-ui.git
-cd ultimate-claude-ui
+git clone https://github.com/dsudomoin/ultimate-claude-gui.git
+cd ultimate-claude-gui
 ./gradlew buildPlugin
 ```
 
