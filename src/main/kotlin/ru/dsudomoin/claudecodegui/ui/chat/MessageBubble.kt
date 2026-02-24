@@ -617,7 +617,6 @@ class MessageBubble(
             border = JBUI.Borders.empty(2)
             font = UIManager.getFont("Label.font") ?: font
             if (message.role == Role.USER) foreground = ThemeColors.userBubbleFg
-            highlighter = null
         }
     }
 
@@ -640,8 +639,7 @@ class MessageBubble(
                 isOpaque = false
                 font = Font("JetBrains Mono", Font.PLAIN, 12)
                 border = JBUI.Borders.empty(4, 8)
-                highlighter = null
-            }, BorderLayout.CENTER)
+                }, BorderLayout.CENTER)
         }
     }
 
@@ -661,7 +659,6 @@ class MessageBubble(
             foreground = if (isError) JBColor.RED else JBColor.namedColor("Claude.ToolResult", JBColor(0x2E7D32, 0x81C784))
             border = JBUI.Borders.empty(4)
             font = Font("JetBrains Mono", Font.PLAIN, 11)
-            highlighter = null
         }
     }
 

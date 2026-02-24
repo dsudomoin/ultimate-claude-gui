@@ -65,7 +65,6 @@ object MarkdownRenderer {
             isOpaque = false
             border = JBUI.Borders.empty(2)
             putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, true)
-            highlighter = null
         }
     }
 
@@ -105,7 +104,6 @@ object MarkdownRenderer {
             isOpaque = false
             border = JBUI.Borders.empty()
             putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, true)
-            highlighter = null
         }
     }
 
@@ -174,8 +172,7 @@ object MarkdownRenderer {
                 isOpaque = false
                 border = JBUI.Borders.empty(1, 0)
                 font = UIManager.getFont("Label.font") ?: font
-                highlighter = null
-            } else null
+                } else null
         }
     }
 
@@ -190,7 +187,6 @@ object MarkdownRenderer {
             isOpaque = false
             border = JBUI.Borders.empty(1, 0)
             putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, true)
-            highlighter = null
         }
     }
 

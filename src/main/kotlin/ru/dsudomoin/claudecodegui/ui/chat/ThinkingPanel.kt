@@ -45,7 +45,6 @@ class ThinkingPanel : JPanel(BorderLayout()) {
         font = UIManager.getFont("Label.font")?.deriveFont(Font.ITALIC, JBUI.scale(12).toFloat()) ?: font
         foreground = TEXT_COLOR
         border = JBUI.Borders.empty(2, 0, 4, 0)
-        highlighter = null
     }
 
     init {
