@@ -27,7 +27,11 @@ jobs:
         run: ./gradlew buildPlugin
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: build/distributions/*.zip
-          generate_release_notes: true
+        run: |
+          gh release delete ${{ github.ref_name }} --yes --cleanup-tag 2>/dev/null || true
+          gh release create ${{ github.ref_name }} \
+            build/distributions/*.zip \
+            --generate-notes \
+            --latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
