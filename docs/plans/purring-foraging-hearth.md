@@ -1,177 +1,162 @@
-# Локализация: замена хардкод-строк на message bundle
+# Переход на CLI-хранилище сессий (~/.claude/projects/)
 
-## Контекст
-Все UI-строки (русские и английские) захардкожены прямо в Kotlin-файлах. Нужно вынести их в `messages/MyMessageBundle.properties` (уже есть bundle-класс `MyMessageBundle.kt` с `DynamicBundle`). Это даст единое место для всех строк и возможность добавить другие языки в будущем.
+## Context
+Сейчас плагин хранит сессии в собственном `~/.claude-code-gui/sessions/` с отдельными `.meta` файлами. Это дублирование — CLI уже хранит всё в `~/.claude/projects/`. Нужно переделать как в референсе: читать сессии напрямую из CLI-хранилища. Тогда:
+- Сессии CLI видны в плагине
+- Resume работает корректно (общий sessionId)
+- Нет двойного хранения
 
-## Подход
-Использовать существующий `MyMessageBundle.message("key")`. Ключи в формате `section.element`.
+## CLI session format
+
+Путь: `~/.claude/projects/<sanitized-path>/<sessionId>.jsonl`
+- Sanitization: все не-alphanumeric символы → `-` (например `/Users/foo/bar` → `-Users-foo-bar`)
+- Каждая строка — JSON объект с `type`: `user`, `assistant`, `queue-operation`
+- Поля: `uuid`, `sessionId`, `timestamp` (ISO 8601), `message.role`, `message.content`, `slug`
+- `slug` — человекочитаемое имя (e.g. "peaceful-growing-wombat")
+- `queue-operation` — пропускать (технические маркеры enqueue/dequeue)
 
 ## Файлы для изменения
 
-### 1. `src/main/resources/messages/MyMessageBundle.properties` — все ключи
+### 1. `core/session/SessionStorage.kt` — полная переделка
 
-```properties
-# Tool display names
-tool.bash=Выполняю команду
-tool.write=Записываю файл
-tool.create=Создаю файл
-tool.edit=Редактирую файл
-tool.replace=Заменяю строку
-tool.read=Читаю файл
-tool.grep=Поиск
-tool.glob=Поиск файлов
-tool.task=Задача
-tool.webfetch=Загрузка URL
-tool.websearch=Веб-поиск
-tool.delete=Удаление
-tool.notebook=Редактирую notebook
-tool.todowrite=Список задач
-tool.updatePlan=Обновление плана
-tool.section.content=СОДЕРЖИМОЕ
-tool.section.command=КОМАНДА
+Вместо `~/.claude-code-gui/sessions/<hash>/` → читать из `~/.claude/projects/<sanitized-path>/`.
 
-# Models
-model.sonnet.desc=Модель по умолчанию
-model.opus.desc=Новейшая и самая мощная
-model.opus1m.desc=Opus 4.6 для длинных чатов
-model.haiku.desc=Самая быстрая для быстрых ответов
-
-# Permission modes
-mode.default.name=Обычный
-mode.default.full=Обычный режим
-mode.default.desc=Требует ручного подтверждения каждой операции, подходит для осторожной работы
-mode.plan.name=План
-mode.plan.full=Режим планирования
-mode.plan.desc=Использует только инструменты чтения, генерирует план для утверждения
-mode.agent.name=Агент
-mode.agent.full=Агентный режим
-mode.agent.desc=Автоматически принимает создание/редактирование файлов, уменьшая кол-во запросов
-mode.auto.name=Авто-режим
-mode.auto.full=Авто-режим
-mode.auto.desc=Полностью автоматический, пропускает все проверки разрешений
-
-# Settings toggles
-settings.streaming=Потоковый вывод
-settings.thinking=Размышляю
-
-# Chat
-chat.placeholder=Ask AI Assistant, use @mentions
-chat.roleUser=You
-chat.roleAssistant=Claude
-chat.newChat=New Chat
-chat.tab=Chat
-
-# Thinking panel
-thinking.active=Thinking\u2026
-thinking.done=Thinking (done)
-
-# Input buttons
-input.send=Send message (Enter)
-input.stop=Stop generation (Esc)
-input.attach=Attach image (or Ctrl+V)
-input.settings=Settings
-input.removeContext=Remove file context
-input.chooseImage=Выберите изображение
-input.openInEditor=Open in editor
-input.remove=Remove
-
-# Permission dialogs
-permission.title=Permission Request
-permission.allow=Allow
-permission.deny=Deny
-permission.wantsToUse=Claude wants to use: {0} \u2014 {1}
-permission.current=Current
-permission.proposed=Proposed by Claude
-
-# Question selection
-question.otherLabel=Другой вариант
-question.otherDesc=Ввести свой ответ
-question.otherAnswer=Ответ: {0}
-question.cancel=Отмена
-question.submit=Ответить
-question.next=Далее
-
-# History
-history.back=Back to chat
-history.title=History
-history.refresh=Refresh
-history.hint=Double-click to load session
-history.deleteTitle=Delete Session
-
-# Tool window
-toolwindow.newChat=New Chat
-toolwindow.newChatDesc=Start a new conversation
-toolwindow.history=History
-toolwindow.historyDesc=Show chat history
-
-# Commit action
-commit.notFound=Панель commit message не найдена
-commit.noChanges=Нет изменений для коммита
-commit.generating=Генерация commit message...
-commit.success=Commit message сгенерирован
-commit.error=Ошибка: {0}
-commit.emptyResponse=Пустой ответ от Claude
-
-# Settings page
-settings.permDefault=Default (ask for permissions)
-settings.permPlan=Plan (read-only, no writes)
-settings.permBypass=Bypass Permissions (auto-approve all)
-settings.loggedIn=Logged in via {0}
-settings.expired=Session expired \u2014 run 'claude login' in terminal
-settings.notLoggedIn=Not logged in \u2014 run 'claude login' in terminal
-settings.authStatus=Auth Status:
-```
-
-### 2. Файлы с заменами (11 файлов)
-
-| # | Файл | Что меняется |
-|---|------|-------------|
-| 1 | `ui/chat/ToolUseBlock.kt` | `TOOL_DISPLAY_NAMES` map → функция `getToolDisplayName()`, секции СОДЕРЖИМОЕ/КОМАНДА |
-| 2 | `ui/input/ChatInputPanel.kt` | MODELS desc, PERMISSION_MODES строки, placeholder, тултипы, toggle labels, "Выберите изображение" |
-| 3 | `ui/chat/MessageBubble.kt` | "You" / "Claude" |
-| 4 | `ui/chat/ThinkingPanel.kt` | "Thinking…" / "Thinking (done)" |
-| 5 | `ui/dialog/PermissionDialog.kt` | title, OK/Cancel |
-| 6 | `ui/dialog/DiffPermissionDialog.kt` | title, OK/Cancel, diff side labels |
-| 7 | `ui/dialog/QuestionSelectionPanel.kt` | "Другой вариант", "Ввести свой ответ", "Ответ:", "Отмена", "Ответить", "Далее" |
-| 8 | `ui/toolwindow/ClaudeToolWindowFactory.kt` | "New Chat", "History", "Chat" |
-| 9 | `ui/history/HistoryPanel.kt` | "Back to chat", "History", "Refresh", hint, "Delete Session" |
-| 10 | `action/GenerateCommitAction.kt` | уведомления и сообщения об ошибках |
-| 11 | `settings/ClaudeSettingsConfigurable.kt` | permission labels, auth status строки |
-
-### 3. Паттерн замены
-
-`TOOL_DISPLAY_NAMES` — из статического `mapOf` в функцию (bundle нельзя вызвать в companion init):
 ```kotlin
-// Было:
-private val TOOL_DISPLAY_NAMES = mapOf("bash" to "Выполняю команду", ...)
+object SessionStorage {
+    private val claudeDir = File(System.getProperty("user.home"), ".claude/projects")
 
-// Стало:
-private fun getToolDisplayName(toolName: String): String = when (toolName) {
-    "bash", "run_terminal_cmd", "execute_command", "shell_command" -> MyMessageBundle.message("tool.bash")
-    "write", "write_to_file" -> MyMessageBundle.message("tool.write")
-    ...
-    else -> toolName
+    // Sanitize: /Users/foo/bar → -Users-foo-bar
+    fun projectDir(projectPath: String): File {
+        val sanitized = projectPath.replace(Regex("[^a-zA-Z0-9]"), "-")
+        return File(claudeDir, sanitized)
+    }
+
+    // List sessions: scan .jsonl files, extract metadata from content
+    fun listSessions(projectPath: String): List<SessionInfo> {
+        // Сканировать .jsonl файлы (не рекурсивно, agent-*.jsonl пропускать)
+        // Для каждого файла: прочитать первые строки для title/slug,
+        // последнюю строку для timestamp
+        // Фильтр: пропускать сессии с < 2 сообщениями
+    }
+
+    // Load session: parse CLI JSONL → List<Message>
+    fun load(projectPath: String, sessionId: String): List<Message>? {
+        // Парсить каждую строку:
+        // - type=user → Role.USER, message.content → ContentBlock
+        // - type=assistant → Role.ASSISTANT, message.content → ContentBlock
+        // - type=queue-operation → пропустить
+        // Конвертировать content: [{type:"text", text:"..."}, {type:"thinking",...}, {type:"tool_use",...}]
+    }
+
+    // Delete: удалить .jsonl файл + директорию сессии (subagents, tool-results)
+    fun delete(projectPath: String, sessionId: String) { ... }
+
+    // Save и updateTitle — УБРАТЬ (SDK сохраняет сам)
 }
 ```
 
-Аналогично для MODELS и PERMISSION_MODES в ChatInputPanel — desc поля станут вычисляемыми.
+**Убрать:** `save()`, `updateTitle()`, `getTitle()`, `getUsedTokens()`, `SessionMeta`, `.meta` файлы.
 
-Простые строки:
+**Парсинг title:** из `slug` поля (если есть) или из первого user message `message.content[0].text`.
+
+**SessionInfo:** обновить:
 ```kotlin
-// Было:
-"Выберите изображение"
-// Стало:
-MyMessageBundle.message("input.chooseImage")
+data class SessionInfo(
+    val sessionId: String,
+    val title: String,
+    val lastTimestamp: Long,    // вместо createdAt — timestamp последнего сообщения
+    val messageCount: Int,      // только user + assistant (без queue-operation)
+    val slug: String? = null    // для отображения
+)
 ```
 
-С параметрами:
+### 2. `core/session/SessionManager.kt` — упрощение
+
 ```kotlin
-// Было:
-"Ошибка: ${ex.message}"
-// Стало:
-MyMessageBundle.message("commit.error", ex.message)
+@Service(Service.Level.PROJECT)
+class SessionManager(private val project: Project) {
+    private val projectPath get() = project.basePath ?: project.name
+
+    // Убрать createSession() — SDK создаёт сессии
+    // Убрать save() — SDK сохраняет
+    // Убрать updateTitle() — нет .meta файлов в CLI
+
+    fun listSessions() = SessionStorage.listSessions(projectPath)
+    fun load(sessionId: String) = SessionStorage.load(projectPath, sessionId)
+    fun delete(sessionId: String) = SessionStorage.delete(projectPath, sessionId)
+    fun getTitle(sessionId: String): String? = SessionStorage.getTitle(projectPath, sessionId)
+}
+```
+
+### 3. `provider/claude/ClaudeProvider.kt` — добавить метод для resume
+
+Сейчас `sessionId` имеет private set. Нужно добавить:
+```kotlin
+// Для resume из истории: установить sessionId до отправки сообщения
+fun setResumeSessionId(id: String) {
+    sessionId = id
+}
+```
+
+### 4. `ui/chat/ChatPanel.kt` — убрать save, починить resume
+
+- **Убрать** `saveSession()` — два вызова (после StreamEnd и после CancellationException)
+- **Убрать** `sessionId = sessionManager.createSession()` из конструктора
+- **`sessionId`** — nullable, берётся из `ClaudeProvider.sessionId` после первого ответа SDK
+- **`loadSession()`** — загрузить сообщения из CLI + вызвать `provider.setResumeSessionId(sessionId)` для resume
+- **`newChat()`** — `provider.resetSession()` (уже есть)
+- **`sessionTitle`** — использовать slug из SessionInfo или первое сообщение
+
+### 5. `ui/history/HistoryPanel.kt` — минимальные изменения
+
+- `createdAt` → `lastTimestamp` в отображении (сортировка и relative time)
+- Убрать то, что зависит от `SessionManager.save/updateTitle`
+- `deleteSelected()` — работает (SessionStorage.delete удаляет CLI файл)
+
+## Парсинг CLI JSONL → Message
+
+Ключевая функция конвертации (в SessionStorage):
+
+```kotlin
+private fun parseCliLine(line: String): Pair<Message?, CliMeta?> {
+    val json = Json.parseToJsonElement(line).jsonObject
+    val type = json["type"]?.jsonPrimitive?.contentOrNull ?: return null to null
+
+    when (type) {
+        "user", "assistant" -> {
+            val role = if (type == "user") Role.USER else Role.ASSISTANT
+            val timestamp = parseIsoTimestamp(json["timestamp"])
+            val slug = json["slug"]?.jsonPrimitive?.contentOrNull
+            val messageObj = json["message"]?.jsonObject ?: return null to null
+            val contentArray = messageObj["content"]?.jsonArray ?: return null to null
+
+            val blocks = contentArray.mapNotNull { block ->
+                val blockObj = block.jsonObject
+                when (blockObj["type"]?.jsonPrimitive?.contentOrNull) {
+                    "text" -> ContentBlock.Text(blockObj["text"]?.jsonPrimitive?.content ?: "")
+                    "thinking" -> ContentBlock.Thinking(blockObj["thinking"]?.jsonPrimitive?.content ?: "")
+                    "tool_use" -> ContentBlock.ToolUse(
+                        id = blockObj["id"]?.jsonPrimitive?.content ?: "",
+                        name = blockObj["name"]?.jsonPrimitive?.content ?: "",
+                        input = blockObj["input"]?.jsonObject ?: JsonObject(emptyMap())
+                    )
+                    "tool_result" -> null // пропускаем tool results (они в user messages)
+                    else -> null
+                }
+            }
+
+            return Message(role, blocks, timestamp) to CliMeta(slug)
+        }
+        "queue-operation" -> return null to null
+        else -> return null to null
+    }
+}
 ```
 
 ## Верификация
-1. `./gradlew compileKotlin` — компиляция
-2. Визуально убедиться, что все строки отображаются как раньше
+1. `./gradlew build -x test` — компиляция
+2. History → показывает сессии из `~/.claude/projects/` (те же что CLI)
+3. Открыть сессию из истории → сообщения отображаются корректно
+4. Отправить сообщение в открытой сессии → resume работает (контекст сохраняется)
+5. New Chat → новая сессия → sessionId приходит от SDK
+6. Удалить сессию → файл удаляется из `~/.claude/projects/`

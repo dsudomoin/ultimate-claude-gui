@@ -1,5 +1,5 @@
 /**
- * Claude Code GUI — Node.js Bridge
+ * Ultimate Claude UI — Node.js Bridge
  *
  * Spawned by the IntelliJ plugin as a child process.
  * Communication (bidirectional):
@@ -119,6 +119,87 @@ async function main() {
     claudePath,
   } = input;
 
+  if (command === 'getSlashCommands') {
+    const defaultCommands = [
+      { name: '/help', description: 'Get help with using Claude Code' },
+      { name: '/clear', description: 'Clear conversation history' },
+      { name: '/compact', description: 'Compact conversation context' },
+      { name: '/init', description: 'Initialize a new project' },
+      { name: '/model', description: 'Change the current model' },
+      { name: '/review', description: 'Review recent changes' },
+    ];
+
+    try {
+      // AsyncStream — manually controlled async iterator.
+      // SDK calls next() internally and waits; done() resolves the pending read,
+      // which allows supportedCommands() to return.
+      const inputStream = {
+        queue: [],
+        readResolve: undefined,
+        isDone: false,
+        started: false,
+        [Symbol.asyncIterator]() {
+          this.started = true;
+          return this;
+        },
+        async next() {
+          if (this.queue.length > 0) return { done: false, value: this.queue.shift() };
+          if (this.isDone) return { done: true, value: undefined };
+          return new Promise((resolve) => { this.readResolve = resolve; });
+        },
+        done() {
+          this.isDone = true;
+          if (this.readResolve) {
+            const resolve = this.readResolve;
+            this.readResolve = undefined;
+            resolve({ done: true, value: undefined });
+          }
+        },
+        async return() {
+          this.isDone = true;
+          return { done: true, value: undefined };
+        },
+      };
+
+      // Clean env to avoid "cannot be launched inside another Claude Code session" error
+      const cleanEnv = { ...process.env };
+      for (const key of Object.keys(cleanEnv)) {
+        if (key.startsWith('CLAUDE') || key === 'CLAUDECODE') delete cleanEnv[key];
+      }
+
+      const opts = {
+        cwd,
+        executable: process.execPath,
+        env: cleanEnv,
+        permissionMode: 'default',
+        maxTurns: 0,
+        canUseTool: async () => ({ behavior: 'deny', message: 'Config loading only' }),
+      };
+      if (claudePath) opts.pathToClaudeCodeExecutable = claudePath;
+
+      const result = query({ prompt: inputStream, options: opts });
+
+      // Signal that input is complete — unblocks SDK internal read
+      inputStream.done();
+
+      const timeout = (ms) => new Promise(r => setTimeout(() => r(null), ms));
+      const commands = await Promise.race([
+        result.supportedCommands?.() || Promise.resolve([]),
+        timeout(15_000),
+      ]) || defaultCommands;
+
+      // Cleanup
+      try { await Promise.race([result.return?.(), timeout(3_000)]); } catch (_) {}
+
+      emit('SLASH_COMMANDS', commands.length > 0 ? commands : defaultCommands);
+      process.exit(0);
+    } catch (e) {
+      process.stderr.write(`[BRIDGE] getSlashCommands error: ${e.message}\n`);
+      emit('SLASH_COMMANDS', defaultCommands);
+      process.exit(0);
+    }
+  }
+
   if (command !== 'send') {
     emit('ERROR', `Unknown command: ${command}`);
     process.exit(1);
@@ -132,8 +213,16 @@ async function main() {
   try {
     emit('STREAM_START', '');
 
+    // Clean env to avoid "cannot be launched inside another Claude Code session" error
+    const sendEnv = { ...process.env };
+    for (const key of Object.keys(sendEnv)) {
+      if (key.startsWith('CLAUDE') || key === 'CLAUDECODE') delete sendEnv[key];
+    }
+
     const options = {
       cwd,
+      executable: process.execPath,
+      env: sendEnv,
       maxTurns,
       permissionMode,
       includePartialMessages: streaming !== false,
@@ -196,6 +285,23 @@ async function main() {
           const evt = msg.event;
           if (!evt) break;
 
+          // Debug: log all stream_event types to stderr
+          process.stderr.write(`[BRIDGE_SE] type=${evt.type}\n`);
+
+          // Detect plan mode tools from raw stream events
+          // (SDK handles these internally and doesn't call canUseTool)
+          if (evt.type === 'content_block_start') {
+            const block = evt.content_block;
+            process.stderr.write(`[BRIDGE_CBS] block_type=${block?.type} name=${block?.name}\n`);
+            if (block?.type === 'tool_use') {
+              if (block.name === 'EnterPlanMode') {
+                emit('PLAN_MODE', 'enter');
+              } else if (block.name === 'ExitPlanMode') {
+                emit('PLAN_MODE', 'exit');
+              }
+            }
+          }
+
           if (evt.type === 'content_block_delta') {
             const delta = evt.delta;
             if (delta?.type === 'text_delta' && delta.text) {
@@ -213,6 +319,12 @@ async function main() {
         case 'assistant': {
           const content = msg.message?.content;
           if (!content) break;
+
+          // Debug: log all content block types
+          if (Array.isArray(content)) {
+            const types = content.map(b => `${b.type}${b.name ? ':' + b.name : ''}`).join(', ');
+            process.stderr.write(`[BRIDGE_AST] blocks: [${types}]\n`);
+          }
 
           if (Array.isArray(content)) {
             for (const block of content) {
@@ -279,6 +391,7 @@ async function main() {
             emit('USAGE', {
               inputTokens: usage.input_tokens ?? 0,
               outputTokens: usage.output_tokens ?? 0,
+              cacheCreation: usage.cache_creation_input_tokens ?? 0,
               cacheRead: usage.cache_read_input_tokens ?? 0,
             });
           }
@@ -294,18 +407,36 @@ async function main() {
           if (msg.session_id) {
             emit('SESSION_ID', msg.session_id);
           }
-          if (msg.usage) {
-            emit('USAGE', {
-              inputTokens: msg.usage?.input_tokens ?? 0,
-              outputTokens: msg.usage?.output_tokens ?? 0,
-              cacheRead: msg.usage?.cache_read_input_tokens ?? 0,
-            });
+          // NOTE: Do NOT emit USAGE from result — result.usage is cumulative across
+          // all API calls in the agentic loop, not the actual context window usage.
+          // Context window usage comes from the last assistant message's usage.
+          break;
+        }
+
+        case 'user': {
+          // Tool results from the SDK (bash output, file read results, etc.)
+          const userContent = msg.message?.content;
+          if (!userContent || !Array.isArray(userContent)) break;
+
+          for (const block of userContent) {
+            if (block.type === 'tool_result') {
+              const resultText = typeof block.content === 'string'
+                ? block.content
+                : Array.isArray(block.content)
+                  ? block.content.filter(b => b.type === 'text').map(b => b.text).join('\n')
+                  : '';
+              emit('TOOL_RESULT', {
+                id: block.tool_use_id,
+                content: resultText,
+                isError: block.is_error ?? false,
+              });
+            }
           }
           break;
         }
 
-        // 'user' messages (tool results from SDK) — we don't need to forward these
         default:
+          process.stderr.write(`[BRIDGE_OTHER] type=${msg.type}\n`);
           break;
       }
     }

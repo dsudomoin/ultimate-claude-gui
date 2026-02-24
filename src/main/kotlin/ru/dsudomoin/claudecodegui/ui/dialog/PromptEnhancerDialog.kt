@@ -7,7 +7,7 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
-import ru.dsudomoin.claudecodegui.MyMessageBundle
+import ru.dsudomoin.claudecodegui.UcuBundle
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.Font
@@ -34,9 +34,9 @@ class PromptEnhancerDialog(
     }
 
     init {
-        title = MyMessageBundle.message("enhancer.title")
-        setOKButtonText(MyMessageBundle.message("enhancer.useEnhanced"))
-        setCancelButtonText(MyMessageBundle.message("enhancer.keepOriginal"))
+        title = UcuBundle.message("enhancer.title")
+        setOKButtonText(UcuBundle.message("enhancer.useEnhanced"))
+        setCancelButtonText(UcuBundle.message("enhancer.keepOriginal"))
         init()
     }
 
@@ -47,12 +47,12 @@ class PromptEnhancerDialog(
         }
 
         val topSection = createPromptSection(
-            MyMessageBundle.message("enhancer.original"),
+            UcuBundle.message("enhancer.original"),
             originalPrompt,
             ORIGINAL_BG
         )
         val bottomSection = createPromptSection(
-            MyMessageBundle.message("enhancer.enhanced"),
+            UcuBundle.message("enhancer.enhanced"),
             enhancedPrompt,
             ENHANCED_BG
         )

@@ -12,6 +12,10 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import ru.dsudomoin.claudecodegui.bridge.BridgeManager
 import ru.dsudomoin.claudecodegui.bridge.NodeDetector
@@ -45,6 +49,11 @@ class ClaudeProvider : AiProvider {
 
     var sessionId: String? = null
         private set
+
+    /** Set sessionId for resuming a session from history. */
+    fun setResumeSessionId(id: String) {
+        sessionId = id
+    }
 
     var projectDir: String? = null
 
@@ -156,6 +165,15 @@ class ClaudeProvider : AiProvider {
                 writer.newLine()
                 writer.flush()
 
+                // Read stderr concurrently (bridge debug output)
+                val stderrThread = Thread({
+                    try {
+                        process.errorStream.bufferedReader().forEachLine { stderrLine ->
+                            log.info("Bridge: $stderrLine")
+                        }
+                    } catch (_: Exception) { }
+                }, "bridge-stderr-reader").apply { isDaemon = true; start() }
+
                 // Read tagged lines from stdout
                 process.inputStream.bufferedReader().use { reader ->
                     var line: String?
@@ -186,11 +204,7 @@ class ClaudeProvider : AiProvider {
                 } catch (_: Exception) { }
                 stdinWriter = null
 
-                // Log stderr (SDK debug output)
-                val stderr = process.errorStream.bufferedReader().readText()
-                if (stderr.isNotBlank()) {
-                    log.debug("Bridge stderr: $stderr")
-                }
+                stderrThread.join(3000)
 
                 val exitCode = process.awaitExit()
                 if (exitCode != 0) {
@@ -212,6 +226,72 @@ class ClaudeProvider : AiProvider {
         }
 
         send(StreamEvent.StreamEnd)
+    }
+
+    /**
+     * Fetch slash commands from the SDK bridge.
+     * Spawns a short-lived bridge process with command=getSlashCommands.
+     * Returns list of {name, description} objects.
+     */
+    suspend fun fetchSlashCommands(): List<Pair<String, String>> = withContext(Dispatchers.IO) {
+        try {
+            if (!BridgeManager.isReady) {
+                val ready = BridgeManager.ensureReady()
+                if (!ready) return@withContext emptyList()
+            } else {
+                BridgeManager.ensureScriptsUpdated()
+            }
+
+            val nodePath = NodeDetector.detect() ?: return@withContext emptyList()
+            val cwd = projectDir ?: System.getProperty("user.dir")
+
+            val claudePath = NodeDetector.detectClaude()
+            val payload = buildJsonObject {
+                put("command", "getSlashCommands")
+                put("cwd", cwd)
+                if (claudePath != null) put("claudePath", claudePath)
+            }
+
+            val process = ProcessBuilder(nodePath, BridgeManager.bridgeScript.absolutePath)
+                .directory(BridgeManager.bridgeScript.parentFile)
+                .redirectErrorStream(false)
+                .start()
+
+            process.outputStream.bufferedWriter().use { writer ->
+                writer.write(payload.toString())
+                writer.newLine()
+                writer.flush()
+            }
+
+            val result = mutableListOf<Pair<String, String>>()
+
+            process.inputStream.bufferedReader().use { reader ->
+                var line: String?
+                while (reader.readLine().also { line = it } != null) {
+                    val l = line ?: continue
+                    if (l.startsWith("[SLASH_COMMANDS]")) {
+                        val json = l.removePrefix("[SLASH_COMMANDS]")
+                        try {
+                            val arr = Json.parseToJsonElement(json).jsonArray
+                            for (elem in arr) {
+                                val obj = elem.jsonObject
+                                val name = obj["name"]?.jsonPrimitive?.content ?: continue
+                                val desc = obj["description"]?.jsonPrimitive?.contentOrNull ?: ""
+                                result.add(name to desc)
+                            }
+                        } catch (e: Exception) {
+                            log.warn("Failed to parse slash commands JSON: ${e.message}")
+                        }
+                    }
+                }
+            }
+
+            process.waitFor()
+            result
+        } catch (e: Exception) {
+            log.warn("Failed to fetch slash commands: ${e.message}")
+            emptyList()
+        }
     }
 
     fun abort() {

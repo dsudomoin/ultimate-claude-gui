@@ -20,10 +20,12 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
 import kotlinx.coroutines.*
-import ru.dsudomoin.claudecodegui.MyMessageBundle
+import ru.dsudomoin.claudecodegui.UcuBundle
+import ru.dsudomoin.claudecodegui.command.SlashCommandRegistry
 import ru.dsudomoin.claudecodegui.service.PromptEnhancer
 import ru.dsudomoin.claudecodegui.service.SettingsService
 import ru.dsudomoin.claudecodegui.ui.dialog.PromptEnhancerDialog
+import ru.dsudomoin.claudecodegui.ui.theme.ThemeColors
 import java.awt.*
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.Transferable
@@ -66,35 +68,42 @@ class ChatInputPanel(
         )
         private const val ARC = 14
 
-        private val INPUT_BG = JBColor(Color(0xFF, 0xFF, 0xFF), Color(0x1E, 0x1E, 0x1E))
-        private val BORDER_NORMAL = JBColor(Color(0xD0, 0xD0, 0xD0), Color(0x3E, 0x3E, 0x42))
-        private val BORDER_FOCUS = JBColor(Color(0x00, 0x78, 0xD4), Color(0x00, 0x7F, 0xD4))
-        private val BUTTON_PRIMARY = JBColor(Color(0x00, 0x78, 0xD4), Color(0x00, 0x7F, 0xD4))
-        private val ERROR_COLOR = JBColor(Color(0xE8, 0x11, 0x23), Color(0xF4, 0x43, 0x36))
-        private val TEXT_PRIMARY = JBColor(Color(0x33, 0x33, 0x33), Color(0xCC, 0xCC, 0xCC))
-        private val TEXT_SECONDARY = JBColor(Color(0x66, 0x66, 0x66), Color(0x88, 0x88, 0x88))
-        private val BUTTON_HOVER = JBColor(Color(0x00, 0x00, 0x00, 0x0D), Color(0xFF, 0xFF, 0xFF, 0x1A))
-        private val TOOLBAR_BG = JBColor(Color(0x00, 0x00, 0x00, 0x08), Color(0x00, 0x00, 0x00, 0x1A))
-        private val DROPDOWN_BG = JBColor(Color(0xFF, 0xFF, 0xFF), Color(0x25, 0x25, 0x26))
-        private val DROPDOWN_BORDER = JBColor(Color(0xD0, 0xD0, 0xD0), Color(0x45, 0x45, 0x45))
-        private val DROPDOWN_HOVER = JBColor(Color(0xF5, 0xF5, 0xF5), Color(0x2A, 0x2D, 0x2E))
-        private val DROPDOWN_SELECTED = JBColor(Color(0xE3, 0xF2, 0xFD), Color(0x09, 0x47, 0x71))
-
-        private val TOGGLE_ON = JBColor(Color(0x00, 0x78, 0xD4), Color(0x00, 0x7F, 0xD4))
-        private val TOGGLE_OFF = JBColor(Color(0xB0, 0xB0, 0xB0), Color(0x55, 0x55, 0x55))
-        private val TOGGLE_KNOB = JBColor(Color.WHITE, Color.WHITE)
+        // Colors sourced from ThemeColors
+        private val INPUT_BG get() = ThemeColors.surfacePrimary
+        private val BORDER_NORMAL get() = ThemeColors.borderNormal
+        private val BORDER_FOCUS get() = ThemeColors.borderFocus
+        private val BUTTON_PRIMARY get() = ThemeColors.accent
+        private val ERROR_COLOR get() = ThemeColors.statusError
+        private val TEXT_PRIMARY get() = ThemeColors.textPrimary
+        private val TEXT_SECONDARY get() = ThemeColors.textSecondary
+        private val BUTTON_HOVER get() = ThemeColors.hoverOverlay
+        private val TOOLBAR_BG get() = ThemeColors.toolbarBg
+        private val DROPDOWN_BG get() = ThemeColors.dropdownBg
+        private val DROPDOWN_BORDER get() = ThemeColors.dropdownBorder
+        private val DROPDOWN_HOVER get() = ThemeColors.dropdownHover
+        private val DROPDOWN_SELECTED get() = ThemeColors.dropdownSelected
+        private val TOGGLE_ON get() = ThemeColors.toggleOn
+        private val TOGGLE_OFF get() = ThemeColors.toggleOff
+        private val TOGGLE_KNOB get() = ThemeColors.toggleKnob
 
         private val IMAGE_EXTENSIONS = arrayOf("png", "jpg", "jpeg", "gif", "bmp", "webp")
     }
 
     private var isSending = false
     private var isEnhancing = false
+    private val slashPopup = SlashCommandPopup { cmd ->
+        textArea.text = "${cmd.name} "
+        textArea.caretPosition = textArea.text.length
+    }
     private val enhanceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val settings = SettingsService.getInstance()
     private var selectedModelId: String = settings.state.claudeModel
     private var selectedModeId: String = settings.state.permissionMode
     private var streamingEnabled: Boolean = settings.state.streamingEnabled
     private var thinkingEnabled: Boolean = settings.state.thinkingEnabled
+    private var isExpanded = false
+    private val COLLAPSED_ROWS = 3
+    private val EXPANDED_ROWS = 12
 
     val selectedModel: String get() = selectedModelId
     val selectedPermissionMode: String get() = selectedModeId
@@ -135,7 +144,7 @@ class ChatInputPanel(
                 g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
                 g2.color = TEXT_SECONDARY
                 g2.font = font
-                g2.drawString(MyMessageBundle.message("chat.placeholder"), insets.left, insets.top + g2.fontMetrics.ascent)
+                g2.drawString(UcuBundle.message("chat.placeholder"), insets.left, insets.top + g2.fontMetrics.ascent)
             }
         }
     }.apply {
@@ -150,11 +159,11 @@ class ChatInputPanel(
 
     // ── Toolbar buttons ─────────────────────────────────────────────────────
 
-    private val settingsButton = createIconButton(AllIcons.General.GearPlain, MyMessageBundle.message("input.settings")).apply {
+    private val settingsButton = createIconButton(AllIcons.General.GearPlain, UcuBundle.message("input.settings")).apply {
         addActionListener { showSettingsPopup() }
     }
 
-    private val attachButton = createIconButton(AllIcons.General.Add, MyMessageBundle.message("input.attach")).apply {
+    private val attachButton = createIconButton(AllIcons.General.Add, UcuBundle.message("input.attach")).apply {
         addActionListener { showAttachmentPicker() }
     }
 
@@ -182,7 +191,7 @@ class ChatInputPanel(
             isFocusPainted = false
             isOpaque = false
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-            toolTipText = MyMessageBundle.message("input.send")
+            toolTipText = UcuBundle.message("input.send")
             addActionListener { onButtonClick() }
             addMouseListener(object : MouseAdapter() {
                 override fun mouseEntered(e: MouseEvent) { hover = true; repaint() }
@@ -206,6 +215,16 @@ class ChatInputPanel(
             icon.paintIcon(this, g2, ix, iy)
         }
     }
+
+    // ── Expand / collapse toggle button ─────────────────────────────────────
+
+    private val expandButton = createIconButton(
+        AllIcons.General.ExpandComponent, UcuBundle.message("input.expand")
+    ).apply {
+        addActionListener { toggleExpandInput() }
+    }
+
+    private lateinit var enhanceButton: JButton
 
     // ── Rounded container ────────────────────────────────────────────────────
 
@@ -294,19 +313,20 @@ class ChatInputPanel(
             percentage = pct.coerceIn(0, 100)
             tokensUsed = used
             tokensMax = max
-            pctLabel.text = "$percentage%"
+            val displayPct = if (max > 0) ((used.toDouble() / max) * 100).toInt() else pct
+            pctLabel.text = "$displayPct%"
             pctLabel.foreground = when {
-                percentage >= 80 -> ERROR_COLOR
-                percentage >= 50 -> JBColor(Color(0xFF, 0xA5, 0x00), Color(0xFF, 0xA5, 0x00))
+                displayPct >= 80 -> ERROR_COLOR
+                displayPct >= 50 -> JBColor(Color(0xFF, 0xA5, 0x00), Color(0xFF, 0xA5, 0x00))
                 else -> TEXT_SECONDARY
             }
-            toolTipText = "Context: $percentage% — ${formatTokensShort(used)} / ${formatTokensShort(max)} tokens"
+            toolTipText = "Context: $displayPct% — ${formatTokensShort(used)} / ${formatTokensShort(max)} tokens"
             circle.repaint()
         }
 
         private fun formatTokensShort(count: Int): String = when {
-            count >= 1_000_000 -> String.format("%.1fM", count / 1_000_000.0)
-            count >= 1_000 -> String.format("%.1fK", count / 1_000.0)
+            count >= 1_000_000 -> String.format(java.util.Locale.US, "%.1fM", count / 1_000_000.0)
+            count >= 1_000 -> String.format(java.util.Locale.US, "%.1fK", count / 1_000.0)
             else -> count.toString()
         }
     }
@@ -361,12 +381,13 @@ class ChatInputPanel(
             add(modelButton)
         }
 
-        val enhanceButton = createIconButton(AllIcons.Actions.Lightning, MyMessageBundle.message("enhancer.tooltip")).apply {
+        enhanceButton = createIconButton(AllIcons.Actions.Lightning, UcuBundle.message("enhancer.tooltip")).apply {
             addActionListener { onEnhancePrompt() }
         }
 
         val rightButtons = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(4), 0)).apply {
             isOpaque = false
+            add(expandButton)
             add(enhanceButton)
             add(createDivider())
             add(sendButton)
@@ -407,6 +428,17 @@ class ChatInputPanel(
 
         textArea.addKeyListener(object : KeyAdapter() {
             override fun keyPressed(e: KeyEvent) {
+                // Slash command popup navigation
+                if (slashPopup.isVisible()) {
+                    when (e.keyCode) {
+                        KeyEvent.VK_UP -> { e.consume(); slashPopup.moveUp(); return }
+                        KeyEvent.VK_DOWN -> { e.consume(); slashPopup.moveDown(); return }
+                        KeyEvent.VK_TAB -> { e.consume(); slashPopup.selectCurrent(); return }
+                        KeyEvent.VK_ENTER -> { e.consume(); slashPopup.selectCurrent(); return }
+                        KeyEvent.VK_ESCAPE -> { e.consume(); slashPopup.hide(); return }
+                    }
+                }
+
                 when {
                     e.keyCode == KeyEvent.VK_ENTER && e.isShiftDown -> {
                         e.consume()
@@ -422,6 +454,13 @@ class ChatInputPanel(
                     }
                 }
             }
+        })
+
+        // Slash command autocomplete trigger
+        textArea.document.addDocumentListener(object : javax.swing.event.DocumentListener {
+            override fun insertUpdate(e: javax.swing.event.DocumentEvent) = checkSlashPrefix()
+            override fun removeUpdate(e: javax.swing.event.DocumentEvent) = checkSlashPrefix()
+            override fun changedUpdate(e: javax.swing.event.DocumentEvent) = checkSlashPrefix()
         })
 
         // Register Cmd+V / Ctrl+V through IntelliJ action system — this is the only
@@ -479,6 +518,11 @@ class ChatInputPanel(
         )
         // Initialize with current editor
         updateFileContextChip()
+
+        // Subscribe to language changes to refresh tooltips/labels
+        com.intellij.openapi.application.ApplicationManager.getApplication().messageBus
+            .connect().subscribe(ru.dsudomoin.claudecodegui.service.LanguageChangeListener.TOPIC,
+                ru.dsudomoin.claudecodegui.service.LanguageChangeListener { refreshLocale() })
     }
 
     // ── Public API ──────────────────────────────────────────────────────────
@@ -489,7 +533,7 @@ class ChatInputPanel(
         isSending = sending
         // Keep textArea enabled so user can type next message while waiting
         sendButton.repaint()
-        sendButton.toolTipText = if (sending) MyMessageBundle.message("input.stop") else MyMessageBundle.message("input.send")
+        sendButton.toolTipText = if (sending) UcuBundle.message("input.stop") else UcuBundle.message("input.send")
         modelButton.isEnabled = !sending
         modeButton.isEnabled = !sending
     }
@@ -501,13 +545,29 @@ class ChatInputPanel(
         return result
     }
 
-    /** Update context usage indicator from token usage data. */
-    fun updateContextUsage(inputTokens: Int, outputTokens: Int, cacheTokens: Int) {
-        val usedTokens = inputTokens + outputTokens + cacheTokens
+    /** Update context usage indicator from token usage data.
+     *  Context window usage = input_tokens + cache_creation + cache_read (excludes output_tokens). */
+    fun updateContextUsage(inputTokens: Int, cacheCreation: Int, cacheRead: Int) {
+        val usedTokens = inputTokens + cacheCreation + cacheRead
         lastInputTokens = usedTokens
         val contextWindow = contextWindowSizes[selectedModelId] ?: 200_000
-        val pct = ((usedTokens.toDouble() / contextWindow) * 100).toInt()
+        val pct = ((usedTokens.toDouble() / contextWindow) * 100).toInt().coerceIn(0, 100)
         contextPercentLabel.setPercentage(pct, usedTokens, contextWindow)
+    }
+
+    /** Refresh all localized tooltips and labels after a language change. */
+    private fun refreshLocale() {
+        SwingUtilities.invokeLater {
+            settingsButton.toolTipText = UcuBundle.message("input.settings")
+            attachButton.toolTipText = UcuBundle.message("input.attach")
+            sendButton.toolTipText = if (isSending) UcuBundle.message("input.stop") else UcuBundle.message("input.send")
+            expandButton.toolTipText = UcuBundle.message(if (isExpanded) "input.collapse" else "input.expand")
+            if (::enhanceButton.isInitialized) {
+                enhanceButton.toolTipText = UcuBundle.message("enhancer.tooltip")
+            }
+            modeButton.text = getModeLabel()
+            textArea.repaint() // placeholder re-reads from bundle in paintComponent
+        }
     }
 
     // ── Private ─────────────────────────────────────────────────────────────
@@ -516,7 +576,25 @@ class ChatInputPanel(
         if (isSending) onStop() else sendMessage()
     }
 
+    private fun checkSlashPrefix() {
+        SwingUtilities.invokeLater {
+            val raw = textArea.text
+            // Only show popup while typing a command prefix (no spaces = still typing command name)
+            if (raw.startsWith("/") && ' ' !in raw && '\n' !in raw) {
+                val matches = SlashCommandRegistry.filter(raw.trim())
+                if (matches.isNotEmpty()) {
+                    slashPopup.show(matches, roundedPanel)
+                } else {
+                    slashPopup.hide()
+                }
+            } else {
+                slashPopup.hide()
+            }
+        }
+    }
+
     private fun sendMessage() {
+        slashPopup.hide()
         val text = textArea.text.trim()
         if (text.isNotEmpty() || attachedImages.isNotEmpty()) {
             onSend(text)
@@ -526,7 +604,25 @@ class ChatInputPanel(
 
     private fun getModeLabel(): String {
         val mode = PERMISSION_MODES.find { it.id == selectedModeId } ?: PERMISSION_MODES[0]
-        return "${mode.icon} ${MyMessageBundle.message(mode.shortKey)} \u25BE"
+        return "${mode.icon} ${UcuBundle.message(mode.shortKey)} \u25BE"
+    }
+
+    // ── Expand / collapse input ────────────────────────────────────────────
+
+    private fun toggleExpandInput() {
+        isExpanded = !isExpanded
+        textArea.rows = if (isExpanded) EXPANDED_ROWS else COLLAPSED_ROWS
+        expandButton.icon = if (isExpanded) AllIcons.General.CollapseComponent else AllIcons.General.ExpandComponent
+        expandButton.toolTipText = UcuBundle.message(if (isExpanded) "input.collapse" else "input.expand")
+        roundedPanel.revalidate()
+        roundedPanel.repaint()
+        var p: Container? = roundedPanel.parent
+        while (p != null) {
+            p.revalidate()
+            p.repaint()
+            if (p is ChatInputPanel) break
+            p = p.parent
+        }
     }
 
     // ── Prompt enhancement ──────────────────────────────────────────────────
@@ -572,7 +668,7 @@ class ChatInputPanel(
 
         popup.add(createToggleItem(
             icon = "\u21C4",
-            label = MyMessageBundle.message("settings.streaming"),
+            label = UcuBundle.message("settings.streaming"),
             isOn = { streamingEnabled },
             onToggle = { enabled ->
                 streamingEnabled = enabled
@@ -582,7 +678,7 @@ class ChatInputPanel(
 
         popup.add(createToggleItem(
             icon = "\uD83D\uDCA1",
-            label = MyMessageBundle.message("settings.thinking"),
+            label = UcuBundle.message("settings.thinking"),
             isOn = { thinkingEnabled },
             onToggle = { enabled ->
                 thinkingEnabled = enabled
@@ -749,7 +845,7 @@ class ChatInputPanel(
             isContentAreaFilled = false
             isFocusPainted = false
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-            toolTipText = MyMessageBundle.message("input.removeContext")
+            toolTipText = UcuBundle.message("input.removeContext")
             addActionListener {
                 activeFileContext = null
                 fileChipPanel.removeAll()
@@ -769,7 +865,7 @@ class ChatInputPanel(
             .withFileFilter { vf ->
                 vf.extension?.lowercase() in IMAGE_EXTENSIONS
             }
-            .withTitle(MyMessageBundle.message("input.chooseImage"))
+            .withTitle(UcuBundle.message("input.chooseImage"))
         val files = FileChooser.chooseFiles(descriptor, project, null)
         for (vf in files) {
             val file = File(vf.path)
@@ -902,7 +998,7 @@ class ChatInputPanel(
             thumbLabel.icon = AllIcons.FileTypes.Image
         }
         thumbLabel.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        thumbLabel.toolTipText = MyMessageBundle.message("input.openInEditor")
+        thumbLabel.toolTipText = UcuBundle.message("input.openInEditor")
         thumbLabel.addMouseListener(object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {
                 val vf = LocalFileSystem.getInstance().findFileByIoFile(file)
@@ -928,7 +1024,7 @@ class ChatInputPanel(
             isContentAreaFilled = false
             isFocusPainted = false
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-            toolTipText = MyMessageBundle.message("input.remove")
+            toolTipText = UcuBundle.message("input.remove")
             addActionListener {
                 attachedImages.remove(file)
                 rebuildAttachmentsPanel()
@@ -956,7 +1052,7 @@ class ChatInputPanel(
             val item = createTwoLinePopupItem(
                 icon = "\u2728",
                 title = model.name,
-                subtitle = MyMessageBundle.message(model.descKey),
+                subtitle = UcuBundle.message(model.descKey),
                 isSelected = isSelected,
                 onClick = {
                     selectedModelId = model.id
@@ -984,8 +1080,8 @@ class ChatInputPanel(
             val isSelected = mode.id == selectedModeId
             val item = createTwoLinePopupItem(
                 icon = mode.icon,
-                title = MyMessageBundle.message(mode.fullKey),
-                subtitle = MyMessageBundle.message(mode.descKey),
+                title = UcuBundle.message(mode.fullKey),
+                subtitle = UcuBundle.message(mode.descKey),
                 isSelected = isSelected,
                 onClick = {
                     selectedModeId = mode.id
@@ -1104,6 +1200,16 @@ class ChatInputPanel(
                 override fun mouseExited(e: MouseEvent) { hover = false; repaint() }
             })
         }
+
+        override fun getPreferredSize(): Dimension {
+            val fm = getFontMetrics(font)
+            val textWidth = fm.stringWidth(getText())
+            val ins = insets
+            return Dimension(textWidth + ins.left + ins.right, fm.height + ins.top + ins.bottom)
+        }
+
+        override fun getMinimumSize(): Dimension = preferredSize
+        override fun getMaximumSize(): Dimension = preferredSize
 
         override fun paintComponent(g: Graphics) {
             val g2 = g as Graphics2D

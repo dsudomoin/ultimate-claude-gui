@@ -9,11 +9,12 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
-import ru.dsudomoin.claudecodegui.MyMessageBundle
+import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.core.model.ContentBlock
 import ru.dsudomoin.claudecodegui.core.model.Message
 import ru.dsudomoin.claudecodegui.core.model.Role
 import ru.dsudomoin.claudecodegui.ui.common.MarkdownRenderer
+import ru.dsudomoin.claudecodegui.ui.theme.ThemeColors
 import java.awt.*
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
@@ -36,18 +37,26 @@ class MessageBubble(
 ) : JPanel() {
 
     private var thinkingPanel: ThinkingPanel? = null
-    private var responseTextArea: JBTextArea? = null
-    private var toolBlocksContainer: JPanel? = null
+    private var contentFlowContainer: JPanel? = null
+    private val textSegments = mutableListOf<JEditorPane>()
+    private val segmentRawTexts = mutableListOf<String>()
+    private val textCheckpoints = mutableListOf<Int>()
+    private var lastTextLength = 0
+    private var lastRenderTime = 0L
+    private var renderTimer: Timer? = null
     private val toolBlocks = mutableMapOf<String, ToolUseBlock>()
+    private val toolGroups = mutableMapOf<String, ToolGroupBlock>()  // toolId → group
+    private var activeGroup: ToolGroupBlock? = null
+    private var lastToolCategory: ToolUseBlock.ToolCategory? = null
+    private var lastStandaloneToolId: String? = null  // ID of the last standalone tool (for upgrade to group)
     private var streamingTimerPanel: JPanel? = null
     private var streamingTimer: Timer? = null
     private var streamingStartTime: Long = 0
 
     companion object {
-        // User bubble: blue background, white text
-        private val USER_BG = JBColor(Color(0x00, 0x78, 0xD4), Color(0x00, 0x5F, 0xB8))
-        private val USER_FG = Color.WHITE
-        private val USER_BORDER = JBColor(Color(0x00, 0x78, 0xD4, 0x10), Color(0xFF, 0xFF, 0xFF, 0x10))
+        private const val RENDER_DEBOUNCE_MS = 80L
+
+        // User bubble colors — sourced from ThemeColors
         private const val BUBBLE_ARC = 12
         private const val SHARP_ARC = 2
 
@@ -73,6 +82,17 @@ class MessageBubble(
             if (lower == "glob") {
                 val pattern = getStringField(input, "pattern")
                 if (pattern != null) return pattern
+            }
+
+            if (lower == "task") {
+                val desc = getStringField(input, "description")
+                val subType = getStringField(input, "subagent_type")
+                return when {
+                    desc != null && subType != null -> "$subType: $desc"
+                    desc != null -> desc
+                    subType != null -> subType
+                    else -> ""
+                }
             }
 
             return ""
@@ -101,7 +121,7 @@ class MessageBubble(
         // Content
         if (streaming) {
             // Streaming timer with spinner
-            val timerLabel = JBLabel(MyMessageBundle.message("streaming.generating")).apply {
+            val timerLabel = JBLabel(UcuBundle.message("streaming.generating")).apply {
                 icon = AnimatedIcon.Default()
                 font = font.deriveFont(Font.PLAIN, 11f)
                 foreground = JBColor.GRAY
@@ -121,8 +141,15 @@ class MessageBubble(
 
             streamingStartTime = System.currentTimeMillis()
             streamingTimer = Timer(1000) {
-                val elapsed = (System.currentTimeMillis() - streamingStartTime) / 1000
-                timerElapsed.text = MyMessageBundle.message("streaming.elapsed", elapsed)
+                val totalSeconds = (System.currentTimeMillis() - streamingStartTime) / 1000
+                val formatted = if (totalSeconds < 60) {
+                    UcuBundle.message("streaming.elapsed.seconds", totalSeconds)
+                } else {
+                    val minutes = totalSeconds / 60
+                    val seconds = totalSeconds % 60
+                    UcuBundle.message("streaming.elapsed.minutes", minutes, seconds)
+                }
+                timerElapsed.text = formatted
             }.apply { start() }
 
             // During streaming: ThinkingPanel + tool blocks + response text area
@@ -132,29 +159,21 @@ class MessageBubble(
             thinkingPanel = tp
             add(tp)
 
-            // Container for tool use blocks (added dynamically during streaming)
-            val container = JPanel(VerticalFlowLayout(VerticalFlowLayout.TOP, 0, JBUI.scale(8), true, false)).apply {
+            // Container for interleaved text and tool blocks (preserves document order)
+            val flow = JPanel(VerticalFlowLayout(VerticalFlowLayout.TOP, 0, JBUI.scale(4), true, false)).apply {
                 isOpaque = false
-                border = JBUI.Borders.empty()
             }
-            toolBlocksContainer = container
-            add(container)
+            contentFlowContainer = flow
 
-            val textArea = JBTextArea(message.textContent).apply {
-                isEditable = false
-                lineWrap = true
-                wrapStyleWord = true
-                isOpaque = false
-                border = JBUI.Borders.empty(2)
-                font = UIManager.getFont("Label.font") ?: font
-            }
-            responseTextArea = textArea
-            add(textArea)
+            // Initial pane for text before first tool block
+            val pane = MarkdownRenderer.createStyledEditorPane().apply { isVisible = false }
+            textSegments.add(pane)
+            segmentRawTexts.add("")
+            flow.add(pane)
+            add(flow)
         } else if (message.role == Role.ASSISTANT && project != null) {
-            // Finished assistant message: render thinking (collapsed) + Markdown + tool blocks
+            // Finished assistant message: render thinking (collapsed) + content blocks in order
             val thinkingBlock = message.content.filterIsInstance<ContentBlock.Thinking>().firstOrNull()
-            val textContent = message.content.filterIsInstance<ContentBlock.Text>()
-                .joinToString("\n") { it.text }
 
             if (thinkingBlock != null && thinkingBlock.text.isNotBlank()) {
                 val tp = ThinkingPanel().apply {
@@ -164,18 +183,106 @@ class MessageBubble(
                 add(tp)
             }
 
-            // Render tool use blocks (completed)
-            message.content.filterIsInstance<ContentBlock.ToolUse>().forEach { block ->
-                val summary = extractToolSummary(block.name, block.input)
-                val toolBlock = ToolUseBlock(block.name, summary, ToolUseBlock.Status.COMPLETED, block.input, project)
-                toolBlock.alignmentX = LEFT_ALIGNMENT
-                add(toolBlock)
+            // Render content blocks with grouping of consecutive same-type tools
+            // First pass: collect tool results by tool_use_id for lookup
+            val toolResultMap = mutableMapOf<String, ContentBlock.ToolResult>()
+            var prevToolUseId: String? = null
+            for (block in message.content) {
+                when (block) {
+                    is ContentBlock.ToolUse -> prevToolUseId = block.id
+                    is ContentBlock.ToolResult -> {
+                        val useId = block.toolUseId.ifEmpty { prevToolUseId }
+                        if (useId != null) toolResultMap[useId] = block
+                    }
+                    else -> {}
+                }
             }
 
-            if (textContent.isNotBlank()) {
-                val rendered = MarkdownRenderer.render(project, textContent)
-                add(rendered)
+            // Second pass: render with grouping
+            var currentGroup: ToolGroupBlock? = null
+            var currentGroupCategory: ToolUseBlock.ToolCategory? = null
+
+            fun flushGroup() {
+                val group = currentGroup ?: return
+                if (group.itemCount == 1) {
+                    // Single item — render as standalone ToolUseBlock
+                    val item = group.items[0]
+                    val result = toolResultMap[item.id]
+                    val status = when {
+                        result?.isError == true -> ToolUseBlock.Status.ERROR
+                        else -> ToolUseBlock.Status.COMPLETED
+                    }
+                    val toolBlock = ToolUseBlock(item.toolName, item.summary, status, item.input, project)
+                    toolBlock.alignmentX = LEFT_ALIGNMENT
+                    if (result != null && result.content.isNotBlank()) {
+                        toolBlock.setResultContent(result.content)
+                    }
+                    add(toolBlock)
+                } else {
+                    group.alignmentX = LEFT_ALIGNMENT
+                    add(group)
+                }
+                currentGroup = null
+                currentGroupCategory = null
             }
+
+            for (block in message.content) {
+                when (block) {
+                    is ContentBlock.ToolUse -> {
+                        val cat = ToolUseBlock.getToolCategory(block.name)
+                        val summary = extractToolSummary(block.name, block.input)
+                        val result = toolResultMap[block.id]
+
+                        if (cat != ToolUseBlock.ToolCategory.OTHER && cat == currentGroupCategory && currentGroup != null) {
+                            // Add to existing group
+                            currentGroup!!.addItem(block.id, block.name, summary, block.input)
+                            if (result != null) {
+                                if (result.isError) currentGroup!!.errorItem(block.id, result.content)
+                                else currentGroup!!.completeItem(block.id, result.content)
+                            } else {
+                                currentGroup!!.completeItem(block.id, null)
+                            }
+                        } else {
+                            flushGroup()
+
+                            if (cat != ToolUseBlock.ToolCategory.OTHER) {
+                                // Start a new potential group
+                                val group = ToolGroupBlock(cat, project)
+                                group.addItem(block.id, block.name, summary, block.input)
+                                if (result != null) {
+                                    if (result.isError) group.errorItem(block.id, result.content)
+                                    else group.completeItem(block.id, result.content)
+                                } else {
+                                    group.completeItem(block.id, null)
+                                }
+                                currentGroup = group
+                                currentGroupCategory = cat
+                            } else {
+                                // OTHER: standalone block
+                                val status = if (result?.isError == true) ToolUseBlock.Status.ERROR else ToolUseBlock.Status.COMPLETED
+                                val toolBlock = ToolUseBlock(block.name, summary, status, block.input, project)
+                                toolBlock.alignmentX = LEFT_ALIGNMENT
+                                if (result != null && result.content.isNotBlank()) {
+                                    toolBlock.setResultContent(result.content)
+                                }
+                                add(toolBlock)
+                            }
+                        }
+                    }
+                    is ContentBlock.ToolResult -> {
+                        // Already handled via toolResultMap
+                    }
+                    is ContentBlock.Text -> {
+                        flushGroup()
+                        if (block.text.isNotBlank()) {
+                            val rendered = MarkdownRenderer.render(project, block.text)
+                            add(rendered)
+                        }
+                    }
+                    else -> {} // Thinking already handled above
+                }
+            }
+            flushGroup()
         } else {
             // User message or no project: plain text
             message.content.forEach { block ->
@@ -188,33 +295,40 @@ class MessageBubble(
 
     override fun getPreferredSize(): Dimension {
         if (message.role == Role.USER) {
-            val parentW = parent?.width ?: 0
-            if (parentW > 0) {
-                val maxW = (parentW * 0.85).toInt().coerceAtLeast(JBUI.scale(60))
-                val ins = insets
-                val textFont = UIManager.getFont("Label.font") ?: font
-                val fm = getFontMetrics(textFont)
-                val text = message.textContent
-                val lines = text.split("\n")
-                val maxLineW = lines.maxOfOrNull { fm.stringWidth(it) } ?: 0
+            // Use fallback width when parent hasn't been laid out yet (e.g., loading history)
+            val parentW = (parent?.width ?: 0).let { if (it > 0) it else JBUI.scale(600) }
+            val maxW = (parentW * 0.85).toInt().coerceAtLeast(JBUI.scale(120))
+            val hasImages = message.content.any { it is ContentBlock.Image }
 
-                // Width: actual text width + bubble padding, capped at 85%
-                val neededW = (maxLineW + ins.left + ins.right + JBUI.scale(8))
-                    .coerceIn(JBUI.scale(60), maxW)
-
-                // Height: account for line wrapping within the constrained width
-                val textAreaW = neededW - ins.left - ins.right - JBUI.scale(4)
-                var totalLines = 0
-                for (line in lines) {
-                    val lineW = fm.stringWidth(line)
-                    totalLines += if (textAreaW > 0 && lineW > textAreaW) {
-                        (lineW + textAreaW - 1) / textAreaW
-                    } else 1
-                }
-                val totalH = fm.height * totalLines + ins.top + ins.bottom + JBUI.scale(4)
-
-                return Dimension(neededW, totalH)
+            if (hasImages) {
+                val layoutPref = super.getPreferredSize()
+                val w = layoutPref.width.coerceIn(JBUI.scale(60), maxW)
+                return Dimension(w, layoutPref.height)
             }
+
+            val ins = insets
+            val textFont = UIManager.getFont("Label.font") ?: font
+            val fm = getFontMetrics(textFont)
+            val text = message.textContent
+            val lines = text.split("\n")
+            val maxLineW = lines.maxOfOrNull { fm.stringWidth(it) } ?: 0
+
+            // Width: actual text width + bubble padding, capped at 85%
+            val neededW = (maxLineW + ins.left + ins.right + JBUI.scale(8))
+                .coerceIn(JBUI.scale(120), maxW)
+
+            // Height: account for line wrapping within the constrained width
+            val textAreaW = neededW - ins.left - ins.right - JBUI.scale(4)
+            var totalLines = 0
+            for (line in lines) {
+                val lineW = fm.stringWidth(line)
+                totalLines += if (textAreaW > 0 && lineW > textAreaW) {
+                    (lineW + textAreaW - 1) / textAreaW
+                } else 1
+            }
+            val totalH = fm.height * totalLines + ins.top + ins.bottom + JBUI.scale(4)
+
+            return Dimension(neededW, totalH)
         }
         return super.getPreferredSize()
     }
@@ -251,10 +365,10 @@ class MessageBubble(
             path.quadTo(0f, 0f, arc, 0f)                   // top-left
             path.closePath()
 
-            g2.color = USER_BG
+            g2.color = ThemeColors.userBubbleBg
             g2.fill(path)
 
-            g2.color = USER_BORDER
+            g2.color = ThemeColors.userBubbleBorder
             g2.stroke = BasicStroke(1f)
             g2.draw(path)
         }
@@ -269,9 +383,56 @@ class MessageBubble(
         }
     }
 
-    /** Update the response text during streaming. */
+    /** Update the response text during streaming, distributing across text segments with debounced markdown rendering. */
     fun updateResponseText(text: String) {
-        responseTextArea?.text = text
+        lastTextLength = text.length
+        var prevIdx = 0
+        for (i in textCheckpoints.indices) {
+            val endIdx = textCheckpoints[i].coerceAtMost(text.length)
+            if (i < segmentRawTexts.size) {
+                segmentRawTexts[i] = text.substring(prevIdx, endIdx)
+            }
+            prevIdx = endIdx
+        }
+        val lastIdx = textCheckpoints.size
+        if (lastIdx < segmentRawTexts.size) {
+            segmentRawTexts[lastIdx] = if (prevIdx <= text.length) text.substring(prevIdx) else ""
+        }
+
+        // Debounced markdown rendering
+        val now = System.currentTimeMillis()
+        if (now - lastRenderTime >= RENDER_DEBOUNCE_MS) {
+            renderSegments()
+            lastRenderTime = now
+            renderTimer?.stop()
+        } else {
+            renderTimer?.stop()
+            renderTimer = Timer(RENDER_DEBOUNCE_MS.toInt()) {
+                renderSegments()
+                lastRenderTime = System.currentTimeMillis()
+            }.apply { isRepeats = false; start() }
+        }
+    }
+
+    private fun renderSegments() {
+        for (i in segmentRawTexts.indices) {
+            if (i < textSegments.size) {
+                val rawText = segmentRawTexts[i]
+                if (rawText.isNotEmpty()) {
+                    try {
+                        val html = MarkdownRenderer.renderToHtml(rawText)
+                        textSegments[i].text = "<html><body>$html</body></html>"
+                    } catch (_: Exception) {
+                        textSegments[i].text = rawText
+                    }
+                    textSegments[i].isVisible = true
+                } else {
+                    textSegments[i].isVisible = false
+                }
+            }
+        }
+        contentFlowContainer?.revalidate()
+        contentFlowContainer?.repaint()
     }
 
     /** Collapse the thinking panel (called when Claude starts the actual response). */
@@ -288,28 +449,151 @@ class MessageBubble(
 
     /** Legacy method for backward compatibility. */
     fun updateText(text: String) {
-        responseTextArea?.text = text
+        updateResponseText(text)
     }
 
-    /** Add a tool use block during streaming. Returns the block for future reference. */
-    fun addToolBlock(id: String, toolName: String, summary: String, input: kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.JsonObject(emptyMap())): ToolUseBlock {
+    /** Add a tool use block during streaming with automatic grouping of consecutive same-type tools. */
+    fun addToolBlock(id: String, toolName: String, summary: String, input: kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.JsonObject(emptyMap())): JComponent {
+        val category = ToolUseBlock.getToolCategory(toolName)
+
+        // Record text checkpoint
+        textCheckpoints.add(lastTextLength)
+
+        // Check if the last text segment is empty (required for grouping)
+        val lastSegmentIdx = segmentRawTexts.lastIndex
+        val lastSegmentEmpty = lastSegmentIdx < 0 || segmentRawTexts[lastSegmentIdx].isBlank()
+
+        // Grouping decision
+        if (category != ToolUseBlock.ToolCategory.OTHER && lastToolCategory == category && lastSegmentEmpty) {
+            val existingGroup = activeGroup
+            if (existingGroup != null) {
+                // Case A: Group already exists — just add to it
+                existingGroup.addItem(id, toolName, summary, input)
+                toolGroups[id] = existingGroup
+
+                // Still need text segment for checkpoint alignment
+                val newPane = MarkdownRenderer.createStyledEditorPane().apply { isVisible = false }
+                textSegments.add(newPane)
+                segmentRawTexts.add("")
+                contentFlowContainer?.add(newPane)
+
+                contentFlowContainer?.revalidate()
+                contentFlowContainer?.repaint()
+                return existingGroup
+            } else {
+                // Case B: Previous was standalone ToolUseBlock of same category — upgrade to group
+                val prevId = lastStandaloneToolId
+                val prevBlock = prevId?.let { toolBlocks[it] }
+
+                if (prevBlock != null && prevId != null) {
+                    val group = ToolGroupBlock(category, project)
+                    group.alignmentX = LEFT_ALIGNMENT
+
+                    // Move previous standalone item into the group
+                    group.addItem(prevId, prevBlock.toolName, prevBlock.summary, prevBlock.input)
+                    // Transfer status if already completed
+                    if (prevBlock.status != ToolUseBlock.Status.PENDING) {
+                        when (prevBlock.status) {
+                            ToolUseBlock.Status.COMPLETED -> group.completeItem(prevId, null)
+                            ToolUseBlock.Status.ERROR -> group.errorItem(prevId, null)
+                            else -> {}
+                        }
+                    }
+
+                    // Replace prevBlock in contentFlowContainer with the group
+                    val container = contentFlowContainer
+                    if (container != null) {
+                        val idx = container.components.indexOf(prevBlock)
+                        if (idx >= 0) {
+                            container.remove(idx)
+                            container.add(group, idx)
+                        }
+                    }
+                    prevBlock.removeFromParentAndDispose()
+                    toolBlocks.remove(prevId)
+                    toolGroups[prevId] = group
+
+                    // Add current item to the group
+                    group.addItem(id, toolName, summary, input)
+                    toolGroups[id] = group
+                    activeGroup = group
+                    lastStandaloneToolId = null
+
+                    // Text segment for checkpoint alignment
+                    val newPane = MarkdownRenderer.createStyledEditorPane().apply { isVisible = false }
+                    textSegments.add(newPane)
+                    segmentRawTexts.add("")
+                    contentFlowContainer?.add(newPane)
+
+                    contentFlowContainer?.revalidate()
+                    contentFlowContainer?.repaint()
+                    return group
+                }
+                // Fallthrough: prevBlock not found, create standalone
+            }
+        }
+
+        // Different category or OTHER — create standalone ToolUseBlock (original behavior)
+        activeGroup = null
+        lastToolCategory = category
+
         val block = ToolUseBlock(toolName, summary, ToolUseBlock.Status.PENDING, input, project)
         block.alignmentX = LEFT_ALIGNMENT
         toolBlocks[id] = block
-        toolBlocksContainer?.add(block)
-        toolBlocksContainer?.revalidate()
-        toolBlocksContainer?.repaint()
+        lastStandaloneToolId = id
+
+        contentFlowContainer?.add(block)
+
+        // Immediately render the now-frozen previous segment
+        val frozenIdx = textCheckpoints.size - 1
+        if (frozenIdx in segmentRawTexts.indices && frozenIdx in textSegments.indices) {
+            val rawText = segmentRawTexts[frozenIdx]
+            if (rawText.isNotEmpty()) {
+                try {
+                    val html = MarkdownRenderer.renderToHtml(rawText)
+                    textSegments[frozenIdx].text = "<html><body>$html</body></html>"
+                    textSegments[frozenIdx].isVisible = true
+                } catch (_: Exception) {}
+            }
+        }
+
+        // Create new pane for text after this tool block
+        val newPane = MarkdownRenderer.createStyledEditorPane().apply { isVisible = false }
+        textSegments.add(newPane)
+        segmentRawTexts.add("")
+        contentFlowContainer?.add(newPane)
+
+        contentFlowContainer?.revalidate()
+        contentFlowContainer?.repaint()
         return block
     }
 
-    /** Mark a tool block as completed. */
-    fun completeToolBlock(id: String) {
-        toolBlocks[id]?.status = ToolUseBlock.Status.COMPLETED
+    /** Insert an inline approval panel at the end of the current content flow. */
+    fun addInlineApproval(panel: JPanel) {
+        panel.alignmentX = LEFT_ALIGNMENT
+        contentFlowContainer?.add(panel)
+        contentFlowContainer?.revalidate()
+        contentFlowContainer?.repaint()
     }
 
-    /** Mark a tool block as error. */
-    fun errorToolBlock(id: String) {
-        toolBlocks[id]?.status = ToolUseBlock.Status.ERROR
+    /** Mark a tool block as completed, optionally showing result content. */
+    fun completeToolBlock(id: String, resultContent: String? = null) {
+        toolBlocks[id]?.let { block ->
+            block.status = ToolUseBlock.Status.COMPLETED
+            if (resultContent != null) block.setResultContent(resultContent)
+            return
+        }
+        toolGroups[id]?.completeItem(id, resultContent)
+    }
+
+    /** Mark a tool block as error, optionally showing result content. */
+    fun errorToolBlock(id: String, resultContent: String? = null) {
+        toolBlocks[id]?.let { block ->
+            block.status = ToolUseBlock.Status.ERROR
+            if (resultContent != null) block.setResultContent(resultContent)
+            return
+        }
+        toolGroups[id]?.errorItem(id, resultContent)
     }
 
     private fun renderContentBlock(block: ContentBlock): JComponent = when (block) {
@@ -332,7 +616,7 @@ class MessageBubble(
             isOpaque = false
             border = JBUI.Borders.empty(2)
             font = UIManager.getFont("Label.font") ?: font
-            if (message.role == Role.USER) foreground = USER_FG
+            if (message.role == Role.USER) foreground = ThemeColors.userBubbleFg
         }
     }
 
@@ -355,7 +639,7 @@ class MessageBubble(
                 isOpaque = false
                 font = Font("JetBrains Mono", Font.PLAIN, 12)
                 border = JBUI.Borders.empty(4, 8)
-            }, BorderLayout.CENTER)
+                }, BorderLayout.CENTER)
         }
     }
 
@@ -380,7 +664,6 @@ class MessageBubble(
 
     private fun createImagePanel(filePath: String): JComponent {
         val file = File(filePath)
-        val maxW = JBUI.scale(280)
         val maxH = JBUI.scale(200)
 
         val panel = JPanel(BorderLayout()).apply {
@@ -391,6 +674,16 @@ class MessageBubble(
         try {
             val orig = ImageIO.read(file)
             if (orig != null) {
+                // Constrain image width to bubble's available width (accounting for insets)
+                val bubbleMaxW = parent?.let { p ->
+                    val parentW = p.width
+                    if (parentW > 0) {
+                        val bubbleW = (parentW * 0.85).toInt()
+                        bubbleW - insets.left - insets.right - JBUI.scale(8)
+                    } else null
+                } ?: JBUI.scale(280)
+                val maxW = bubbleMaxW.coerceIn(JBUI.scale(100), JBUI.scale(400))
+
                 val scale = minOf(maxW.toDouble() / orig.width, maxH.toDouble() / orig.height, 1.0)
                 val w = (orig.width * scale).toInt().coerceAtLeast(1)
                 val h = (orig.height * scale).toInt().coerceAtLeast(1)

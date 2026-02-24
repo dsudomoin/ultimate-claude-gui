@@ -8,7 +8,7 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
 import kotlinx.serialization.json.JsonObject
-import ru.dsudomoin.claudecodegui.MyMessageBundle
+import ru.dsudomoin.claudecodegui.UcuBundle
 import java.awt.BorderLayout
 import java.awt.Font
 import javax.swing.JComponent
@@ -26,9 +26,9 @@ class PermissionDialog(
 ) : DialogWrapper(project) {
 
     init {
-        title = MyMessageBundle.message("permission.title")
-        setOKButtonText(MyMessageBundle.message("permission.allow"))
-        setCancelButtonText(MyMessageBundle.message("permission.deny"))
+        title = UcuBundle.message("permission.title")
+        setOKButtonText(UcuBundle.message("permission.allow"))
+        setCancelButtonText(UcuBundle.message("permission.deny"))
         init()
     }
 
@@ -38,7 +38,7 @@ class PermissionDialog(
         }
 
         // Header
-        val header = JBLabel(MyMessageBundle.message("permission.wantsToUse", toolName, "")).apply {
+        val header = JBLabel(UcuBundle.message("permission.wantsToUse", toolName, "")).apply {
             font = font.deriveFont(Font.BOLD, 14f)
             border = JBUI.Borders.emptyBottom(8)
         }

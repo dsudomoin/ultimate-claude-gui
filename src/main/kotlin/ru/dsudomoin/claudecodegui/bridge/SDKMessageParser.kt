@@ -94,6 +94,7 @@ object SDKMessageParser {
                         StreamEvent.Usage(
                             inputTokens = obj["inputTokens"]?.jsonPrimitive?.int ?: 0,
                             outputTokens = obj["outputTokens"]?.jsonPrimitive?.int ?: 0,
+                            cacheCreation = obj["cacheCreation"]?.jsonPrimitive?.int ?: 0,
                             cacheRead = obj["cacheRead"]?.jsonPrimitive?.int ?: 0
                         )
                     )
@@ -107,6 +108,14 @@ object SDKMessageParser {
                             input = obj["input"]?.jsonObject ?: JsonObject(emptyMap())
                         )
                     )
+                }
+
+                "PLAN_MODE" -> {
+                    when (payload.trim()) {
+                        "enter" -> ParsedEvent.Stream(StreamEvent.PlanModeEnter)
+                        "exit" -> ParsedEvent.Stream(StreamEvent.PlanModeExit)
+                        else -> null
+                    }
                 }
 
                 "ERROR" -> ParsedEvent.Stream(StreamEvent.Error(payload))

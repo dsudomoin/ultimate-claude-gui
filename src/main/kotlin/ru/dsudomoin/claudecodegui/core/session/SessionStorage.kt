@@ -1,164 +1,415 @@
 package ru.dsudomoin.claudecodegui.core.session
 
 import com.intellij.openapi.diagnostic.Logger
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.*
+import ru.dsudomoin.claudecodegui.core.model.ContentBlock
 import ru.dsudomoin.claudecodegui.core.model.Message
+import ru.dsudomoin.claudecodegui.core.model.Role
 import java.io.File
-import java.security.MessageDigest
+import java.time.Instant
 
 /**
- * Low-level JSONL persistence for chat sessions.
+ * Reads sessions directly from the Claude CLI storage at ~/.claude/projects/.
  *
- * Storage layout:
- *   ~/.claude-code-gui/sessions/<project-hash>/<sessionId>.jsonl
+ * CLI JSONL format:
+ *   - Each line is a JSON object with `type` field
+ *   - type=user/assistant: message data with `message.content` array
+ *   - type=queue-operation, file-history-snapshot, system: skip
+ *   - `slug` field appears on the first assistant message that has it
  *
- * Each line in the JSONL file is a serialized [Message].
- * A companion .meta file stores session metadata (title, createdAt).
+ * Path: ~/.claude/projects/<sanitized-path>/<sessionId>.jsonl
+ * Sanitization: all non-alphanumeric characters -> '-'
  */
 object SessionStorage {
 
     private val log = Logger.getInstance(SessionStorage::class.java)
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private val json = Json { ignoreUnknownKeys = true }
 
-    private val baseDir: File
-        get() = File(System.getProperty("user.home"), ".claude-code-gui/sessions")
+    private val claudeDir: File
+        get() = File(System.getProperty("user.home"), ".claude/projects")
 
+    /** Sanitize project path the same way CLI does: non-alphanumeric -> '-' */
     fun projectDir(projectPath: String): File {
-        val hash = projectPath.md5().take(12)
-        val safeName = projectPath.substringAfterLast('/').take(30).replace(Regex("[^a-zA-Z0-9._-]"), "_")
-        return File(baseDir, "${safeName}_$hash").also { it.mkdirs() }
+        val sanitized = projectPath.replace(Regex("[^a-zA-Z0-9]"), "-")
+        return File(claudeDir, sanitized)
     }
 
-    /** Save all messages for a session (overwrites). */
-    fun save(projectPath: String, sessionId: String, messages: List<Message>, title: String?, usedTokens: Int = 0) {
+    /**
+     * List all sessions for a project, sorted by last modified (newest first).
+     * Skips agent-*.jsonl subagent files and sessions with < 2 messages.
+     */
+    fun listSessions(projectPath: String): List<SessionInfo> {
         val dir = projectDir(projectPath)
-        val file = File(dir, "$sessionId.jsonl")
-        try {
-            file.bufferedWriter().use { writer ->
-                messages.forEach { msg ->
-                    writer.write(json.encodeToString(msg))
-                    writer.newLine()
-                }
+        if (!dir.exists()) return emptyList()
+
+        return dir.listFiles { f ->
+            f.extension == "jsonl" && !f.name.startsWith("agent-")
+        }?.mapNotNull { file ->
+            try {
+                extractSessionInfo(file)
+            } catch (e: Exception) {
+                log.debug("Failed to read session info from ${file.name}: ${e.message}")
+                null
             }
-            // Save metadata
-            if (title != null) {
-                val metaFile = File(dir, "$sessionId.meta")
-                metaFile.writeText(json.encodeToString(SessionMeta(title = title, messageCount = messages.size, usedTokens = usedTokens)))
-            }
-        } catch (e: Exception) {
-            log.warn("Failed to save session $sessionId: ${e.message}")
-        }
+        }?.filter { it.messageCount >= 2 }
+            ?.sortedByDescending { it.lastTimestamp }
+            ?: emptyList()
     }
 
-    /** Load all messages for a session. */
+    /**
+     * Load session messages from CLI JSONL file.
+     * Parses user/assistant messages, skips technical entries.
+     * Aggregates consecutive same-role message blocks into single Messages.
+     */
     fun load(projectPath: String, sessionId: String): List<Message>? {
         val file = File(projectDir(projectPath), "$sessionId.jsonl")
         if (!file.exists()) return null
+
         return try {
-            file.readLines()
-                .filter { it.isNotBlank() }
-                .map { json.decodeFromString<Message>(it) }
+            val rawMessages = mutableListOf<ParsedMessage>()
+            file.bufferedReader().useLines { lines ->
+                for (line in lines) {
+                    if (line.isBlank()) continue
+                    val parsed = parseCliLine(line)
+                    if (parsed != null) {
+                        rawMessages.add(parsed)
+                    }
+                }
+            }
+            // Aggregate consecutive same-role blocks into single Messages
+            aggregateMessages(rawMessages)
         } catch (e: Exception) {
             log.warn("Failed to load session $sessionId: ${e.message}")
             null
         }
     }
 
-    /** List all sessions for a project, sorted by last modified (newest first). */
-    fun listSessions(projectPath: String): List<SessionInfo> {
-        val dir = projectDir(projectPath)
-        if (!dir.exists()) return emptyList()
-
-        return dir.listFiles { f -> f.extension == "jsonl" }
-            ?.map { file ->
-                val sid = file.nameWithoutExtension
-                val meta = loadMeta(dir, sid)
-                SessionInfo(
-                    sessionId = sid,
-                    title = meta?.title ?: generateTitleFromFile(file),
-                    createdAt = file.lastModified(),
-                    messageCount = meta?.messageCount ?: countLines(file)
-                )
-            }
-            ?.sortedByDescending { it.createdAt }
-            ?: emptyList()
-    }
-
-    /** Delete a session. */
-    fun delete(projectPath: String, sessionId: String) {
-        val dir = projectDir(projectPath)
-        File(dir, "$sessionId.jsonl").delete()
-        File(dir, "$sessionId.meta").delete()
-    }
-
-    /** Update session title. */
-    fun updateTitle(projectPath: String, sessionId: String, title: String) {
-        val dir = projectDir(projectPath)
-        val meta = loadMeta(dir, sessionId) ?: SessionMeta(title = title)
-        val metaFile = File(dir, "$sessionId.meta")
-        metaFile.writeText(json.encodeToString(meta.copy(title = title)))
-    }
-
-    /** Get title for a session. */
+    /** Get title for a session (slug or first user message text). */
     fun getTitle(projectPath: String, sessionId: String): String? {
-        val dir = projectDir(projectPath)
-        return loadMeta(dir, sessionId)?.title
-    }
+        val file = File(projectDir(projectPath), "$sessionId.jsonl")
+        if (!file.exists()) return null
 
-    /** Get saved token usage for a session. */
-    fun getUsedTokens(projectPath: String, sessionId: String): Int {
-        val dir = projectDir(projectPath)
-        return loadMeta(dir, sessionId)?.usedTokens ?: 0
-    }
-
-    private fun loadMeta(dir: File, sessionId: String): SessionMeta? {
-        val metaFile = File(dir, "$sessionId.meta")
-        if (!metaFile.exists()) return null
         return try {
-            json.decodeFromString<SessionMeta>(metaFile.readText())
-        } catch (_: Exception) {
+            var slug: String? = null
+            var firstUserText: String? = null
+
+            file.bufferedReader().useLines { lines ->
+                for (line in lines) {
+                    if (line.isBlank()) continue
+                    val obj = json.parseToJsonElement(line).jsonObject
+                    // Check for slug
+                    if (slug == null) {
+                        slug = obj["slug"]?.jsonPrimitive?.contentOrNull
+                    }
+                    // Check for first user text message
+                    if (firstUserText == null && obj["type"]?.jsonPrimitive?.contentOrNull == "user") {
+                        val content = obj["message"]?.jsonObject?.get("content")?.jsonArray
+                        firstUserText = content?.firstOrNull { block ->
+                            block.jsonObject["type"]?.jsonPrimitive?.contentOrNull == "text"
+                        }?.jsonObject?.get("text")?.jsonPrimitive?.contentOrNull
+                    }
+                    // Stop early once we have both
+                    if (slug != null && firstUserText != null) break
+                }
+            }
+
+            slug ?: firstUserText?.take(60)?.let {
+                if (it.length >= 60) "${it.take(57)}..." else it
+            }
+        } catch (e: Exception) {
+            log.debug("Failed to get title for $sessionId: ${e.message}")
             null
         }
     }
 
-    private fun generateTitleFromFile(file: File): String {
-        return try {
-            val firstLine = file.bufferedReader().use { it.readLine() } ?: return "New Chat"
-            val msg = json.decodeFromString<Message>(firstLine)
-            val text = msg.textContent.take(60)
-            if (text.length >= 60) "${text.take(57)}..." else text.ifBlank { "New Chat" }
-        } catch (_: Exception) {
-            "New Chat"
+    /** Delete a session: remove .jsonl file and associated directory (subagents, tool-results). */
+    fun delete(projectPath: String, sessionId: String) {
+        val dir = projectDir(projectPath)
+        File(dir, "$sessionId.jsonl").delete()
+        // Delete associated session directory (subagent files, etc.)
+        val sessionDir = File(dir, sessionId)
+        if (sessionDir.exists() && sessionDir.isDirectory) {
+            sessionDir.deleteRecursively()
         }
     }
 
-    private fun countLines(file: File): Int {
-        return try {
-            file.bufferedReader().use { reader ->
-                var count = 0
-                while (reader.readLine() != null) count++
-                count
+    /**
+     * Extract usage from the last assistant message in the JSONL file.
+     * Returns (inputTokens, cacheCreation, cacheRead) or null if not found.
+     */
+    fun getLastUsage(projectPath: String, sessionId: String): Triple<Int, Int, Int>? {
+        val file = File(projectDir(projectPath), "$sessionId.jsonl")
+        if (!file.exists()) return null
+
+        var lastUsage: Triple<Int, Int, Int>? = null
+        try {
+            file.bufferedReader().useLines { lines ->
+                for (line in lines) {
+                    if (line.isBlank()) continue
+                    try {
+                        val obj = json.parseToJsonElement(line).jsonObject
+                        if (obj["type"]?.jsonPrimitive?.contentOrNull != "assistant") continue
+                        val usage = obj["message"]?.jsonObject?.get("usage")?.jsonObject ?: continue
+                        val input = usage["input_tokens"]?.jsonPrimitive?.int ?: 0
+                        val cacheCreation = usage["cache_creation_input_tokens"]?.jsonPrimitive?.int ?: 0
+                        val cacheRead = usage["cache_read_input_tokens"]?.jsonPrimitive?.int ?: 0
+                        lastUsage = Triple(input, cacheCreation, cacheRead)
+                    } catch (_: Exception) {
+                        // Skip malformed lines
+                    }
+                }
             }
-        } catch (_: Exception) { 0 }
+        } catch (e: Exception) {
+            log.debug("Failed to extract usage for $sessionId: ${e.message}")
+        }
+        return lastUsage
     }
 
-    private fun String.md5(): String {
-        val digest = MessageDigest.getInstance("MD5")
-        return digest.digest(toByteArray()).joinToString("") { "%02x".format(it) }
+    // ── Private helpers ──
+
+    private data class ParsedMessage(
+        val role: Role,
+        val blocks: List<ContentBlock>,
+        val timestamp: Long
+    )
+
+    /**
+     * Extract lightweight session info by scanning the JSONL file.
+     * Reads slug from first occurrence, counts user/assistant messages,
+     * gets timestamp from last message.
+     */
+    private fun extractSessionInfo(file: File): SessionInfo {
+        val sessionId = file.nameWithoutExtension
+        var slug: String? = null
+        var firstUserText: String? = null
+        var messageCount = 0
+        var lastTimestamp = file.lastModified()
+
+        file.bufferedReader().useLines { lines ->
+            for (line in lines) {
+                if (line.isBlank()) continue
+                try {
+                    val obj = json.parseToJsonElement(line).jsonObject
+                    val type = obj["type"]?.jsonPrimitive?.contentOrNull ?: continue
+
+                    if (type == "user" || type == "assistant") {
+                        // Only count actual conversation messages (not tool_result user messages)
+                        val content = obj["message"]?.jsonObject?.get("content")?.jsonArray
+                        val blockTypes = content?.mapNotNull {
+                            it.jsonObject["type"]?.jsonPrimitive?.contentOrNull
+                        } ?: emptyList()
+
+                        val isToolResult = blockTypes.all { it == "tool_result" }
+                        if (!isToolResult) {
+                            messageCount++
+                        }
+
+                        // Extract slug
+                        if (slug == null) {
+                            slug = obj["slug"]?.jsonPrimitive?.contentOrNull
+                        }
+
+                        // Extract first user text for title
+                        if (firstUserText == null && type == "user" && !isToolResult) {
+                            firstUserText = content?.firstOrNull { block ->
+                                block.jsonObject["type"]?.jsonPrimitive?.contentOrNull == "text"
+                            }?.jsonObject?.get("text")?.jsonPrimitive?.contentOrNull
+                        }
+
+                        // Update last timestamp
+                        val ts = obj["timestamp"]?.jsonPrimitive?.contentOrNull
+                        if (ts != null) {
+                            try {
+                                lastTimestamp = Instant.parse(ts).toEpochMilli()
+                            } catch (_: Exception) {
+                            }
+                        }
+                    }
+                } catch (_: Exception) {
+                    // Skip malformed lines
+                }
+            }
+        }
+
+        val title = slug ?: firstUserText?.take(60)?.let {
+            if (it.length >= 60) "${it.take(57)}..." else it.ifBlank { "New Chat" }
+        } ?: "New Chat"
+
+        return SessionInfo(
+            sessionId = sessionId,
+            title = title,
+            lastTimestamp = lastTimestamp,
+            messageCount = messageCount,
+            slug = slug
+        )
+    }
+
+    /**
+     * Parse a single CLI JSONL line into a ParsedMessage (or null if not a conversation message).
+     */
+    private fun parseCliLine(line: String): ParsedMessage? {
+        val obj = json.parseToJsonElement(line).jsonObject
+        val type = obj["type"]?.jsonPrimitive?.contentOrNull ?: return null
+
+        if (type != "user" && type != "assistant") return null
+
+        val role = if (type == "user") Role.USER else Role.ASSISTANT
+        val timestamp = obj["timestamp"]?.jsonPrimitive?.contentOrNull?.let {
+            try {
+                Instant.parse(it).toEpochMilli()
+            } catch (_: Exception) {
+                System.currentTimeMillis()
+            }
+        } ?: System.currentTimeMillis()
+
+        val messageObj = obj["message"]?.jsonObject ?: return null
+        val contentElement = messageObj["content"] ?: return null
+
+        // content can be a JSON array (normal) or a plain string (e.g. session continuation summary)
+        val contentArray = when (contentElement) {
+            is JsonArray -> contentElement
+            is JsonPrimitive -> {
+                val text = contentElement.contentOrNull ?: return null
+                if (text.isBlank()) return null
+                return ParsedMessage(role, listOf(ContentBlock.Text(text)), timestamp)
+            }
+            else -> return null
+        }
+
+        val blocks = contentArray.mapNotNull { block ->
+            val blockObj = block.jsonObject
+            when (blockObj["type"]?.jsonPrimitive?.contentOrNull) {
+                "text" -> {
+                    val text = blockObj["text"]?.jsonPrimitive?.contentOrNull ?: ""
+                    if (text.isNotBlank()) ContentBlock.Text(text) else null
+                }
+                "thinking" -> {
+                    val thinking = blockObj["thinking"]?.jsonPrimitive?.contentOrNull ?: ""
+                    if (thinking.isNotBlank()) ContentBlock.Thinking(thinking) else null
+                }
+                "tool_use" -> ContentBlock.ToolUse(
+                    id = blockObj["id"]?.jsonPrimitive?.contentOrNull ?: "",
+                    name = blockObj["name"]?.jsonPrimitive?.contentOrNull ?: "",
+                    input = blockObj["input"]?.jsonObject ?: JsonObject(emptyMap())
+                )
+                "tool_result" -> {
+                    val toolUseId = blockObj["tool_use_id"]?.jsonPrimitive?.contentOrNull ?: ""
+                    val isError = blockObj["is_error"]?.jsonPrimitive?.booleanOrNull ?: false
+                    // tool_result content can be a string or array
+                    val resultContent = blockObj["content"]?.let { contentElement ->
+                        when (contentElement) {
+                            is JsonPrimitive -> contentElement.contentOrNull ?: ""
+                            is JsonArray -> contentElement.mapNotNull { el ->
+                                el.jsonObject["text"]?.jsonPrimitive?.contentOrNull
+                            }.joinToString("\n")
+                            else -> ""
+                        }
+                    } ?: ""
+                    ContentBlock.ToolResult(
+                        toolUseId = toolUseId,
+                        content = resultContent,
+                        isError = isError
+                    )
+                }
+                "image" -> {
+                    val source = blockObj["source"]?.let { src ->
+                        when (src) {
+                            is JsonPrimitive -> src.contentOrNull
+                            is JsonObject -> src["data"]?.jsonPrimitive?.contentOrNull
+                            else -> null
+                        }
+                    } ?: ""
+                    if (source.isNotBlank()) ContentBlock.Image(source) else null
+                }
+                else -> null
+            }
+        }
+
+        if (blocks.isEmpty()) return null
+        return ParsedMessage(role, blocks, timestamp)
+    }
+
+    /**
+     * Aggregate consecutive ParsedMessages with the same role into single Messages.
+     * This converts the fine-grained CLI format (one line per API turn) into
+     * our UI display format (one Message per logical turn).
+     *
+     * Special handling:
+     * - User messages containing ONLY tool_result blocks are attached to the
+     *   preceding assistant message (they're API protocol artifacts, not user text).
+     * - Enriched IDE context (appended by the plugin) is stripped from user text blocks.
+     */
+    private fun aggregateMessages(parsed: List<ParsedMessage>): List<Message> {
+        if (parsed.isEmpty()) return emptyList()
+
+        val result = mutableListOf<Message>()
+        var currentRole = parsed[0].role
+        var currentBlocks = mutableListOf<ContentBlock>()
+        var currentTimestamp = parsed[0].timestamp
+
+        for (msg in parsed) {
+            // User messages with only tool_result blocks → attach to previous assistant message
+            if (msg.role == Role.USER && msg.blocks.all { it is ContentBlock.ToolResult }) {
+                if (currentRole == Role.ASSISTANT) {
+                    // Still accumulating assistant blocks — just append tool results
+                    currentBlocks.addAll(msg.blocks)
+                } else if (result.isNotEmpty() && result.last().role == Role.ASSISTANT) {
+                    // Previous group already flushed — append to it
+                    val last = result.removeAt(result.lastIndex)
+                    result.add(Message(last.role, last.content + msg.blocks, last.timestamp))
+                }
+                // Otherwise (no preceding assistant) — drop these orphaned tool results
+                continue
+            }
+
+            if (msg.role != currentRole) {
+                // Flush accumulated blocks
+                if (currentBlocks.isNotEmpty()) {
+                    result.add(Message(currentRole, currentBlocks.toList(), currentTimestamp))
+                }
+                currentRole = msg.role
+                currentBlocks = mutableListOf()
+                currentTimestamp = msg.timestamp
+            }
+
+            if (msg.role == Role.USER) {
+                // Strip enriched IDE context from user text blocks
+                currentBlocks.addAll(msg.blocks.map { block ->
+                    if (block is ContentBlock.Text) ContentBlock.Text(stripEnrichedContext(block.text))
+                    else block
+                })
+            } else {
+                currentBlocks.addAll(msg.blocks)
+            }
+        }
+
+        // Flush last group
+        if (currentBlocks.isNotEmpty()) {
+            result.add(Message(currentRole, currentBlocks.toList(), currentTimestamp))
+        }
+
+        return result
+    }
+
+    /**
+     * Strip IDE context enrichment that the plugin appends to user messages before sending to the API.
+     * The plugin adds patterns like:
+     *   \n\n_Currently viewing `<path>` (line N)_
+     *   \n\n_Attached screenshots:_\n- `<path>`
+     */
+    private fun stripEnrichedContext(text: String): String {
+        // Strip "_Currently viewing ..." suffix
+        var cleaned = text.replace(Regex("\n\n_Currently viewing `[^`]+` \\(line \\d+\\)_$"), "")
+        // Strip "_Attached screenshots:_" suffix (may span multiple lines)
+        cleaned = cleaned.replace(Regex("\n\n_Attached screenshots:_(\n- `[^`]+`)+$"), "")
+        return cleaned
     }
 }
-
-@kotlinx.serialization.Serializable
-data class SessionMeta(
-    val title: String = "New Chat",
-    val messageCount: Int = 0,
-    val usedTokens: Int = 0
-)
 
 data class SessionInfo(
     val sessionId: String,
     val title: String,
-    val createdAt: Long,
-    val messageCount: Int
+    val lastTimestamp: Long,
+    val messageCount: Int,
+    val slug: String? = null
 )

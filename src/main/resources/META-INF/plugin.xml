@@ -1,6 +1,6 @@
 <idea-plugin>
     <id>ru.dsudomoin.claude-code-gui</id>
-    <name>Claude Code GUI</name>
+    <name>Ultimate Claude UI</name>
     <vendor url="https://github.com/dsudomoin">dsudomoin</vendor>
     <description><![CDATA[
         Native IntelliJ plugin for AI-powered coding with Claude and Codex.
@@ -29,7 +29,11 @@
         <applicationConfigurable parentId="tools"
                                  instance="ru.dsudomoin.claudecodegui.settings.ClaudeSettingsConfigurable"
                                  id="ru.dsudomoin.claudecodegui.settings"
-                                 displayName="Claude Code GUI"/>
+                                 displayName="Ultimate Claude UI"/>
+        <applicationConfigurable parentId="ru.dsudomoin.claudecodegui.settings"
+                                 instance="ru.dsudomoin.claudecodegui.settings.AppearanceConfigurable"
+                                 id="ru.dsudomoin.claudecodegui.settings.appearance"
+                                 displayName="Appearance"/>
 
         <!-- Notifications -->
         <notificationGroup id="Claude Code" displayType="BALLOON"/>
