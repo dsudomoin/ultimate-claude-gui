@@ -442,6 +442,7 @@ class ChatPanel(
         val textCheckpoints = mutableListOf<Int>()
         var inPlanMode = false
         var lastPlanDecision: Boolean? = null
+        var hasError = false
 
         val selectedModel = inputPanel.selectedModel
         val selectedMode = inputPanel.selectedPermissionMode
@@ -600,6 +601,7 @@ class ChatPanel(
                         }
 
                         is StreamEvent.Error -> {
+                            hasError = true
                             SwingUtilities.invokeLater {
                                 messageListPanel.stopStreamingTimer()
                                 messages[messages.lastIndex] =
@@ -645,6 +647,9 @@ class ChatPanel(
                         }
 
                         is StreamEvent.StreamEnd -> {
+                            // Don't overwrite error message with empty response
+                            if (hasError) return@collect
+
                             // Capture sessionId from provider (SDK assigns it)
                             sessionId = provider.sessionId
                             val blocks = buildAssistantBlocks(thinkingText, responseText, toolUseBlocks, toolResults, textCheckpoints)
