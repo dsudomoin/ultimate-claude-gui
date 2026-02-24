@@ -40,6 +40,12 @@ Most AI plugins for IDEs rely on embedded browsers (JCEF/Chromium), Electron wra
 
 ---
 
+## Screenshots
+
+![img.png](img.png)
+
+---
+
 ## Features
 
 ### Chat & Conversations
