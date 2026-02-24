@@ -19,6 +19,10 @@
   <a href="#building-from-source">Build</a>
 </p>
 
+<p align="center">
+  <b>🇬🇧 English</b> | <a href="README.ru.md">🇷🇺 Русский</a>
+</p>
+
 ---
 
 ## Why Ultimate Claude UI?
@@ -169,8 +173,8 @@ Full **English** and **Russian** translations. Follows IDE language by default, 
 ### From Source
 
 ```bash
-git clone https://github.com/anthropics/ultimate-claude-ui.git
-cd ultimate-claude-ui
+git clone https://github.com/dsudomoin/ultimate-claude-gui.git
+cd ultimate-claude-gui
 ./gradlew buildPlugin
 ```
 
