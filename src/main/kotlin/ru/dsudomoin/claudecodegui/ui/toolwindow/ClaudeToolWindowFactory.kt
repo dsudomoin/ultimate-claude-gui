@@ -4,14 +4,17 @@ import ru.dsudomoin.claudecodegui.MyMessageBundle
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.*
+import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.content.ContentFactory
-import ru.dsudomoin.claudecodegui.core.session.SessionManager
+import com.intellij.ui.content.ContentManagerEvent
+import com.intellij.ui.content.ContentManagerListener
 import ru.dsudomoin.claudecodegui.ui.chat.ChatPanel
 import ru.dsudomoin.claudecodegui.ui.history.HistoryPanel
+import ru.dsudomoin.claudecodegui.ui.theme.ThemeManager
 import java.awt.CardLayout
 import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.JPanel
@@ -24,28 +27,57 @@ class ClaudeToolWindowFactory : ToolWindowFactory {
     override fun shouldBeAvailable(project: Project) = true
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
-        addNewTab(project, toolWindow, closeable = false)
+        ThemeManager.initialize()
+        addNewTab(project, toolWindow)
+
+        // When last tab is closed, auto-create a new empty one
+        toolWindow.contentManager.addContentManagerListener(object : ContentManagerListener {
+            override fun contentRemoved(event: ContentManagerEvent) {
+                if (toolWindow.contentManager.contentCount == 0) {
+                    addNewTab(project, toolWindow)
+                }
+            }
+        })
 
         toolWindow.setTitleActions(listOf(
             object : AnAction(MyMessageBundle.message("toolwindow.newChat"), MyMessageBundle.message("toolwindow.newChatDesc"), AllIcons.General.Add) {
-                override fun actionPerformed(e: AnActionEvent) {
-                    addNewTab(project, toolWindow, closeable = true)
+                override fun actionPerformed(e: AnActionEvent) = addNewTab(project, toolWindow)
+                override fun update(e: AnActionEvent) {
+                    e.presentation.text = MyMessageBundle.message("toolwindow.newChat")
+                    e.presentation.description = MyMessageBundle.message("toolwindow.newChatDesc")
                 }
             },
             object : AnAction(MyMessageBundle.message("toolwindow.history"), MyMessageBundle.message("toolwindow.historyDesc"), AllIcons.Vcs.History) {
+                override fun actionPerformed(e: AnActionEvent) = toggleHistory(project, toolWindow)
+                override fun update(e: AnActionEvent) {
+                    e.presentation.text = MyMessageBundle.message("toolwindow.history")
+                    e.presentation.description = MyMessageBundle.message("toolwindow.historyDesc")
+                }
+            },
+            object : AnAction(MyMessageBundle.message("toolwindow.settings"), MyMessageBundle.message("toolwindow.settingsDesc"), AllIcons.General.GearPlain) {
                 override fun actionPerformed(e: AnActionEvent) {
-                    toggleHistory(project, toolWindow)
+                    ShowSettingsUtil.getInstance()
+                        .showSettingsDialog(project, ru.dsudomoin.claudecodegui.settings.ClaudeSettingsConfigurable::class.java)
+                }
+                override fun update(e: AnActionEvent) {
+                    e.presentation.text = MyMessageBundle.message("toolwindow.settings")
+                    e.presentation.description = MyMessageBundle.message("toolwindow.settingsDesc")
                 }
             }
         ))
 
-        // Add "Rename" to the gear dropdown menu (⚙️ in tool window header)
+        // Add "Rename" and "Close Tab" to the gear dropdown menu (⚙️ in tool window header)
         val renameAction = object : AnAction(MyMessageBundle.message("toolwindow.rename"), MyMessageBundle.message("toolwindow.renameDesc"), AllIcons.Actions.Edit) {
             override fun actionPerformed(e: AnActionEvent) {
                 renameCurrentTab(project, toolWindow)
             }
         }
-        toolWindow.setAdditionalGearActions(DefaultActionGroup(renameAction))
+        val closeAction = object : AnAction(MyMessageBundle.message("toolwindow.closeTab"), MyMessageBundle.message("toolwindow.closeTabDesc"), AllIcons.Actions.Close) {
+            override fun actionPerformed(e: AnActionEvent) {
+                closeCurrentTab(toolWindow)
+            }
+        }
+        toolWindow.setAdditionalGearActions(DefaultActionGroup(renameAction, closeAction))
 
         // Double-click on tab area to rename
         SwingUtilities.invokeLater {
@@ -53,12 +85,12 @@ class ClaudeToolWindowFactory : ToolWindowFactory {
         }
     }
 
-    private fun addNewTab(project: Project, toolWindow: ToolWindow, closeable: Boolean) {
+    private fun addNewTab(project: Project, toolWindow: ToolWindow) {
         val num = tabCounter.incrementAndGet()
         val container = ChatContainerPanel(project, toolWindow)
         val title = if (num == 1) MyMessageBundle.message("chat.tab") else "${MyMessageBundle.message("chat.tab")} $num"
         val content = ContentFactory.getInstance().createContent(container, title, false).apply {
-            isCloseable = closeable
+            isCloseable = true
             setDisposer(container)
         }
         toolWindow.contentManager.addContent(content)
@@ -87,6 +119,11 @@ class ClaudeToolWindowFactory : ToolWindowFactory {
         container.toggleHistory()
     }
 
+    private fun closeCurrentTab(toolWindow: ToolWindow) {
+        val content = toolWindow.contentManager.selectedContent ?: return
+        toolWindow.contentManager.removeContent(content, true)
+    }
+
     private fun renameCurrentTab(project: Project, toolWindow: ToolWindow) {
         val content = toolWindow.contentManager.selectedContent ?: return
         val container = content.component as? ChatContainerPanel ?: return
@@ -105,8 +142,6 @@ class ClaudeToolWindowFactory : ToolWindowFactory {
         if (newTitle.isNotBlank()) {
             content.displayName = newTitle
             chatPanel.customTitle = newTitle
-            val sessionManager = SessionManager.getInstance(project)
-            sessionManager.updateTitle(chatPanel.sessionId, newTitle)
         }
     }
 }

@@ -1,6 +1,7 @@
 package ru.dsudomoin.claudecodegui.ui.chat
 
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.ui.JBColor
@@ -13,23 +14,31 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import ru.dsudomoin.claudecodegui.MyMessageBundle
+import ru.dsudomoin.claudecodegui.command.CommandCategory
+import ru.dsudomoin.claudecodegui.command.SlashCommandRegistry
 import ru.dsudomoin.claudecodegui.core.model.ContentBlock
 import ru.dsudomoin.claudecodegui.core.model.Message
 import ru.dsudomoin.claudecodegui.core.model.StreamEvent
 import ru.dsudomoin.claudecodegui.core.session.SessionManager
 import ru.dsudomoin.claudecodegui.provider.claude.ClaudeProvider
 import ru.dsudomoin.claudecodegui.service.SettingsService
+import ru.dsudomoin.claudecodegui.ui.approval.ApprovalPanelFactory
 import ru.dsudomoin.claudecodegui.ui.dialog.DiffPermissionDialog
 import ru.dsudomoin.claudecodegui.ui.dialog.PermissionDialog
+import ru.dsudomoin.claudecodegui.ui.dialog.PlanActionPanel
 import ru.dsudomoin.claudecodegui.ui.dialog.QuestionSelectionPanel
 import ru.dsudomoin.claudecodegui.ui.input.ChatInputPanel
 import ru.dsudomoin.claudecodegui.ui.status.StatusPanel
+import ru.dsudomoin.claudecodegui.ui.theme.ThemeColors
 import ru.dsudomoin.claudecodegui.ui.status.TodoItem
 import ru.dsudomoin.claudecodegui.ui.status.TodoStatus
 import java.awt.*
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.awt.geom.RoundRectangle2D
+import java.io.File
+import javax.swing.BoxLayout
 import javax.swing.JLayeredPane
 import javax.swing.JPanel
 import javax.swing.ScrollPaneConstants
@@ -44,14 +53,16 @@ class ChatPanel(
     private var currentJob: Job? = null
 
     private val sessionManager = SessionManager.getInstance(project)
-    var sessionId: String = sessionManager.createSession()
+    var sessionId: String? = null
         private set
 
     /** Custom title set by user (null = auto-generated from first message). */
     var customTitle: String? = null
 
     private var lastUsedTokens: Int = 0
-    private val messageQueue = java.util.concurrent.ConcurrentLinkedQueue<String>()
+    data class QueuedMessage(val text: String, val images: List<File>)
+
+    private val messageQueue = java.util.concurrent.ConcurrentLinkedQueue<QueuedMessage>()
 
     private val provider = ClaudeProvider().apply {
         projectDir = project.basePath
@@ -77,6 +88,8 @@ class ChatPanel(
 
     private val statusPanel = StatusPanel(project)
 
+    private val queuePanel = QueuePanel(onRemove = ::removeFromQueue)
+
     /** Panel that holds the input area — swappable between inputPanel and QuestionSelectionPanel */
     private val inputContainer = JPanel(BorderLayout()).apply {
         isOpaque = false
@@ -86,10 +99,11 @@ class ChatPanel(
     // ── Floating scroll navigation button ────────────────────────────────────
 
     companion object {
-        private val NAV_BG = JBColor(Color(0xFF, 0xFF, 0xFF, 0xE6), Color(0x2B, 0x2B, 0x2B, 0xE6))
-        private val NAV_BORDER = JBColor(Color(0x00, 0x00, 0x00, 0x1A), Color(0xFF, 0xFF, 0xFF, 0x1A))
-        private val NAV_ARROW = JBColor(Color(0x55, 0x55, 0x55), Color(0xAA, 0xAA, 0xAA))
-        private val NAV_HOVER_BG = JBColor(Color(0xF0, 0xF0, 0xF0, 0xF0), Color(0x3C, 0x3C, 0x3C, 0xF0))
+        private val log = Logger.getInstance(ChatPanel::class.java)
+        private val NAV_BG get() = ThemeColors.navBg
+        private val NAV_BORDER get() = ThemeColors.navBorder
+        private val NAV_ARROW get() = ThemeColors.navArrow
+        private val NAV_HOVER_BG get() = ThemeColors.navHoverBg
     }
 
     /** true = pointing up (scroll to top), false = pointing down (scroll to bottom) */
@@ -98,6 +112,8 @@ class ChatPanel(
     private var lastScrollValue = 0
     private var scrollAnimTimer: Timer? = null
     private var pendingUpShow: Timer? = null  // delay before showing UP button
+    private var autoScrollToBottom = true
+    private var programmaticScroll = false
 
     private val scrollNavButton = object : JPanel() {
         init {
@@ -174,19 +190,43 @@ class ChatPanel(
         add(scrollContainer, BorderLayout.CENTER)
         val southPanel = JPanel(BorderLayout()).apply {
             isOpaque = false
-            add(statusPanel, BorderLayout.NORTH)
+            val topSection = JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                isOpaque = false
+                add(statusPanel)
+                add(queuePanel)
+            }
+            add(topSection, BorderLayout.NORTH)
             add(inputContainer, BorderLayout.CENTER)
         }
         add(southPanel, BorderLayout.SOUTH)
 
+        // Preload slash commands from SDK in background
+        if (!SlashCommandRegistry.isLoaded) {
+            scope.launch {
+                val commands = provider.fetchSlashCommands()
+                if (commands.isNotEmpty()) {
+                    SlashCommandRegistry.updateSdkCommands(commands)
+                }
+            }
+        }
+
         // Track scroll direction and show/hide nav button
+        // Show welcome screen on initial load
+        messageListPanel.updateMessages(messages)
+
         scrollPane.verticalScrollBar.addAdjustmentListener { e ->
             if (scrollAnimTimer?.isRunning == true) return@addAdjustmentListener
 
             val bar = scrollPane.verticalScrollBar
             val atTop = bar.value <= 0
-            val atBottom = bar.value + bar.visibleAmount >= bar.maximum - JBUI.scale(5)
+            val atBottom = bar.value + bar.visibleAmount >= bar.maximum - JBUI.scale(20)
             val contentFits = bar.maximum <= bar.visibleAmount
+
+            // Track user scroll-away during streaming
+            if (!programmaticScroll && currentJob?.isActive == true) {
+                autoScrollToBottom = atBottom
+            }
 
             if (contentFits) {
                 cancelPendingUpShow()
@@ -229,9 +269,12 @@ class ChatPanel(
 
     private fun onScrollNavClick() {
         cancelPendingUpShow()
-        val target = if (navPointsUp) 0
-        else scrollPane.verticalScrollBar.maximum - scrollPane.verticalScrollBar.visibleAmount
-        smoothScrollTo(target)
+        if (navPointsUp) {
+            smoothScrollTo(0)
+        } else {
+            autoScrollToBottom = true
+            smoothScrollTo(scrollPane.verticalScrollBar.maximum - scrollPane.verticalScrollBar.visibleAmount)
+        }
         scrollNavButton.isVisible = false
     }
 
@@ -279,22 +322,54 @@ class ChatPanel(
     }
 
     private fun onSendMessage(text: String) {
-        // If currently streaming, queue the message for later
+        // Slash command routing
+        val trimmed = text.trim()
+        if (trimmed.startsWith("/")) {
+            val cmdName = trimmed.split(" ", limit = 2).first()
+            val cmd = SlashCommandRegistry.find(cmdName)
+            if (cmd != null && cmd.category == CommandCategory.LOCAL) {
+                executeLocalCommand(cmd)
+                return
+            }
+            // SDK commands fall through to doSendMessage
+        }
+
+        // If currently streaming, queue the message for later (capture images now)
         if (currentJob?.isActive == true) {
-            messageQueue.add(text)
+            val images = inputPanel.consumeAttachedImages()
+            messageQueue.add(QueuedMessage(text, images))
+            queuePanel.rebuild(messageQueue.toList())
             return
         }
         doSendMessage(text)
     }
 
-    private fun doSendMessage(text: String) {
-        // Consume attached images
-        val images = inputPanel.consumeAttachedImages()
+    private fun executeLocalCommand(cmd: ru.dsudomoin.claudecodegui.command.SlashCommand) {
+        when {
+            cmd.name in SlashCommandRegistry.NEW_SESSION_ALIASES -> {
+                newChat()
+                messageListPanel.addSystemMessage(MyMessageBundle.message("cmd.clear.done"))
+            }
+            cmd.name == "/help" -> {
+                val sb = StringBuilder(MyMessageBundle.message("cmd.help.title"))
+                SlashCommandRegistry.all().forEach { c ->
+                    sb.append("\n  ${c.name} — ${c.description}")
+                }
+                messageListPanel.addSystemMessage(sb.toString())
+            }
+        }
+    }
+
+    private fun doSendMessage(text: String, preAttachedImages: List<File>? = null) {
+        autoScrollToBottom = true
+
+        // Use pre-attached images (from queue) or consume from input panel
+        val images = preAttachedImages ?: inputPanel.consumeAttachedImages()
 
         // Enrich text with IDE context and image paths for the API
         val sb = StringBuilder(text)
 
-        if (!text.startsWith("From `") && !text.startsWith("File: `") && !text.startsWith("I'm working in")) {
+        if (!text.startsWith("/") && !text.startsWith("From `") && !text.startsWith("File: `") && !text.startsWith("I'm working in")) {
             val ctx = getActiveFileContext()
             if (ctx != null) sb.append("\n\n_${ctx}_")
         }
@@ -324,11 +399,16 @@ class ChatPanel(
         // Add empty assistant message as placeholder for streaming
         messages.add(Message.assistant(""))
         messageListPanel.startStreaming(messages)
+        scrollToBottom()
 
         val thinkingText = StringBuilder()
         val responseText = StringBuilder()
         var thinkingCollapsed = false
         val toolUseBlocks = mutableListOf<ContentBlock.ToolUse>()
+        val toolResults = mutableMapOf<String, Pair<String, Boolean>>()
+        val textCheckpoints = mutableListOf<Int>()
+        var inPlanMode = false
+        var lastPlanDecision: Boolean? = null
 
         val selectedModel = inputPanel.selectedModel
         val selectedMode = inputPanel.selectedPermissionMode
@@ -378,14 +458,84 @@ class ChatPanel(
                                 }
                             }
                             responseText.append(event.text)
-                            val currentResponse = responseText.toString()
-                            SwingUtilities.invokeLater {
-                                messageListPanel.updateStreamingResponse(currentResponse)
-                                scrollToBottom()
+                            // In plan mode: accumulate text but don't stream to UI
+                            if (!inPlanMode) {
+                                val currentResponse = responseText.toString()
+                                SwingUtilities.invokeLater {
+                                    messageListPanel.updateStreamingResponse(currentResponse)
+                                    scrollToBottom()
+                                }
+                            }
+                        }
+
+                        is StreamEvent.PlanModeEnter -> {
+                            // SDK hides EnterPlanMode from stream events, so this rarely fires.
+                            // If it does, suppress text streaming until ExitPlanMode.
+                            log.info("PlanModeEnter: suppressing text streaming")
+                            inPlanMode = true
+                        }
+
+                        is StreamEvent.PlanModeExit -> {
+                            log.info("PlanModeExit: rendering plan")
+                            inPlanMode = false
+                            try {
+                                val planMarkdown = responseText.toString()
+                                log.info("PlanModeExit: planMarkdown length=${planMarkdown.length}")
+
+                                // Build display blocks without text (plan rendered as single HTML block)
+                                val displayBlocks = mutableListOf<ContentBlock>()
+                                if (thinkingText.isNotEmpty()) {
+                                    displayBlocks.add(ContentBlock.Thinking(thinkingText.toString()))
+                                }
+                                displayBlocks.addAll(toolUseBlocks)
+
+                                SwingUtilities.invokeAndWait {
+                                    messageListPanel.stopStreamingTimer()
+                                    messages[messages.lastIndex] = Message.assistant(displayBlocks)
+                                    messageListPanel.updateMessages(messages)
+                                    if (planMarkdown.isNotBlank()) {
+                                        messageListPanel.addPlanBlock(planMarkdown)
+                                    }
+                                    scrollToBottom()
+                                }
+
+                                val deferred = CompletableDeferred<Boolean>()
+                                SwingUtilities.invokeLater {
+                                    showPlanActionButtons { approved ->
+                                        deferred.complete(approved)
+                                    }
+                                }
+                                log.info("PlanModeExit: awaiting user decision")
+                                val allowed = deferred.await()
+                                lastPlanDecision = allowed
+                                log.info("PlanModeExit: user decided allowed=$allowed")
+
+                                // Restore full message content (with text) for session saving
+                                SwingUtilities.invokeAndWait {
+                                    if (planMarkdown.isNotBlank()) {
+                                        val fullBlocks = displayBlocks.toMutableList()
+                                        fullBlocks.add(ContentBlock.Text(planMarkdown))
+                                        messages[messages.lastIndex] = Message.assistant(fullBlocks)
+                                    }
+                                    messages.add(Message.assistant(""))
+                                    messageListPanel.startStreaming(messages)
+                                }
+                                thinkingText.clear()
+                                responseText.clear()
+                                thinkingCollapsed = false
+                                toolUseBlocks.clear()
+                                textCheckpoints.clear()
+                            } catch (e: Exception) {
+                                log.error("PlanModeExit handler failed", e)
                             }
                         }
 
                         is StreamEvent.ToolUse -> {
+                            // Filter out plan mode tools — handled via PlanModeExit
+                            val lowerName = event.name.lowercase()
+                            if (lowerName == "exitplanmode" || lowerName == "enterplanmode") {
+                                return@collect
+                            }
                             if (!thinkingCollapsed && thinkingText.isNotEmpty()) {
                                 thinkingCollapsed = true
                                 SwingUtilities.invokeLater {
@@ -394,6 +544,7 @@ class ChatPanel(
                             }
                             val toolBlock = ContentBlock.ToolUse(event.id, event.name, event.input)
                             toolUseBlocks.add(toolBlock)
+                            textCheckpoints.add(responseText.length)
                             val summary = MessageBubble.extractToolSummary(event.name, event.input)
                             SwingUtilities.invokeLater {
                                 messageListPanel.addToolBlock(event.id, event.name, summary, event.input)
@@ -403,11 +554,12 @@ class ChatPanel(
                         }
 
                         is StreamEvent.ToolResult -> {
+                            toolResults[event.id] = event.content to event.isError
                             SwingUtilities.invokeLater {
                                 if (event.isError) {
-                                    messageListPanel.errorToolBlock(event.id)
+                                    messageListPanel.errorToolBlock(event.id, event.content)
                                 } else {
-                                    messageListPanel.completeToolBlock(event.id)
+                                    messageListPanel.completeToolBlock(event.id, event.content)
                                 }
                                 trackToolResultForStatus(event.id, event.isError)
                                 scrollToBottom()
@@ -435,10 +587,13 @@ class ChatPanel(
                                 }
                                 responseText.clear()
                                 responseText.append(event.text)
-                                val currentResponse = responseText.toString()
-                                SwingUtilities.invokeLater {
-                                    messageListPanel.updateStreamingResponse(currentResponse)
-                                    scrollToBottom()
+                                // In plan mode: accumulate but don't stream to UI
+                                if (!inPlanMode) {
+                                    val currentResponse = responseText.toString()
+                                    SwingUtilities.invokeLater {
+                                        messageListPanel.updateStreamingResponse(currentResponse)
+                                        scrollToBottom()
+                                    }
                                 }
                             }
                         }
@@ -457,7 +612,9 @@ class ChatPanel(
                         }
 
                         is StreamEvent.StreamEnd -> {
-                            val blocks = buildAssistantBlocks(thinkingText, responseText, toolUseBlocks)
+                            // Capture sessionId from provider (SDK assigns it)
+                            sessionId = provider.sessionId
+                            val blocks = buildAssistantBlocks(thinkingText, responseText, toolUseBlocks, toolResults, textCheckpoints)
                             SwingUtilities.invokeLater {
                                 messageListPanel.stopStreamingTimer()
                                 messages[messages.lastIndex] = Message.assistant(blocks)
@@ -466,14 +623,12 @@ class ChatPanel(
                                 scrollToBottom()
                                 processQueue()
                             }
-                            // Auto-save session
-                            saveSession()
                         }
 
                         is StreamEvent.Usage -> {
-                            lastUsedTokens = event.inputTokens + event.outputTokens + event.cacheRead
+                            lastUsedTokens = event.inputTokens + event.cacheCreation + event.cacheRead
                             SwingUtilities.invokeLater {
-                                inputPanel.updateContextUsage(event.inputTokens, event.outputTokens, event.cacheRead)
+                                inputPanel.updateContextUsage(event.inputTokens, event.cacheCreation, event.cacheRead)
                             }
                         }
 
@@ -498,19 +653,28 @@ class ChatPanel(
                                 } else {
                                     provider.sendPermissionResponse(true)
                                 }
+                            } else if (lower == "exitplanmode" || lower == "enterplanmode") {
+                                // Use the user's decision from PlanModeExit handler (if available)
+                                val decision = lastPlanDecision ?: true
+                                lastPlanDecision = null
+                                log.info("$lower: PermissionRequest received (decision=$decision)")
+                                if (decision) {
+                                    provider.sendPermissionResponse(true)
+                                } else {
+                                    provider.sendPermissionResponse(false, "User rejected the plan")
+                                }
                             } else {
                                 val deferred = CompletableDeferred<Boolean>()
-                                val isFileTool = lower in setOf(
-                                    "edit", "edit_file", "replace_string",
-                                    "write", "write_to_file", "create_file"
-                                )
+                                val approvalRequest = ApprovalPanelFactory.classifyTool(event.toolName, event.input)
                                 SwingUtilities.invokeLater {
-                                    val allowed = if (isFileTool) {
-                                        DiffPermissionDialog(project, event.toolName, event.input).showAndGet()
-                                    } else {
-                                        PermissionDialog(project, event.toolName, event.input).showAndGet()
-                                    }
-                                    deferred.complete(allowed)
+                                    val panel = ApprovalPanelFactory.create(
+                                        project = project,
+                                        request = approvalRequest,
+                                        onApprove = { _ -> deferred.complete(true) },
+                                        onReject = { deferred.complete(false) }
+                                    )
+                                    messageListPanel.addInlineApprovalPanel(panel)
+                                    scrollToBottom()
                                 }
                                 val allowed = deferred.await()
                                 provider.sendPermissionResponse(allowed)
@@ -524,7 +688,7 @@ class ChatPanel(
                 SwingUtilities.invokeLater {
                     messageListPanel.stopStreamingTimer()
                     if (responseText.isNotBlank() || thinkingText.isNotBlank() || toolUseBlocks.isNotEmpty()) {
-                        val blocks = buildAssistantBlocks(thinkingText, responseText, toolUseBlocks, stopped = true)
+                        val blocks = buildAssistantBlocks(thinkingText, responseText, toolUseBlocks, toolResults, textCheckpoints, stopped = true)
                         messages[messages.lastIndex] = Message.assistant(blocks)
                     } else {
                         messages.removeAt(messages.lastIndex)
@@ -534,15 +698,24 @@ class ChatPanel(
                     scrollToBottom()
                     processQueue()
                 }
-                // Save on cancel too
-                saveSession()
             }
         }
     }
 
     private fun processQueue() {
         val next = messageQueue.poll() ?: return
-        doSendMessage(next)
+        queuePanel.rebuild(messageQueue.toList())
+        doSendMessage(next.text, next.images)
+    }
+
+    private fun removeFromQueue(index: Int) {
+        val list = messageQueue.toMutableList()
+        if (index in list.indices) {
+            list.removeAt(index)
+            messageQueue.clear()
+            list.forEach { messageQueue.add(it) }
+            queuePanel.rebuild(messageQueue.toList())
+        }
     }
 
     private fun onStopGeneration() {
@@ -553,9 +726,11 @@ class ChatPanel(
 
     fun newChat() {
         onStopGeneration()
+        messageQueue.clear()
+        queuePanel.rebuild(emptyList())
         messages.clear()
         provider.resetSession()
-        sessionId = sessionManager.createSession()
+        sessionId = null
         customTitle = null
         lastUsedTokens = 0
         messageListPanel.updateMessages(messages)
@@ -563,20 +738,25 @@ class ChatPanel(
         statusPanel.clear()
     }
 
-    /** Load an existing session into this panel. */
+    /** Load an existing session into this panel (resume from CLI storage). */
     fun loadSession(loadSessionId: String) {
+        autoScrollToBottom = true
         onStopGeneration()
         val loaded = sessionManager.load(loadSessionId) ?: return
         messages.clear()
         messages.addAll(loaded)
         sessionId = loadSessionId
         customTitle = sessionManager.getTitle(loadSessionId)
-        lastUsedTokens = sessionManager.getUsedTokens(loadSessionId)
-        provider.resetSession()
+        // Set resume sessionId so the next message continues this session in SDK
+        provider.setResumeSessionId(loadSessionId)
         messageListPanel.updateMessages(messages)
+        // Restore context usage from last assistant message in JSONL
+        val usage = sessionManager.getLastUsage(loadSessionId)
+        if (usage != null) {
+            lastUsedTokens = usage.first + usage.second + usage.third
+            inputPanel.updateContextUsage(usage.first, usage.second, usage.third)
+        }
         scrollToBottom()
-        // Restore context usage indicator
-        inputPanel.updateContextUsage(lastUsedTokens, 0, 0)
     }
 
     /** Get session title: custom title if set, otherwise auto-generated from first message. */
@@ -593,22 +773,14 @@ class ChatPanel(
             return if (text.length >= 40) "${text.take(37)}..." else text.ifBlank { "New Chat" }
         }
 
-    private fun saveSession() {
-        if (messages.isNotEmpty()) {
-            val tokens = lastUsedTokens
-            scope.launch {
-                sessionManager.save(sessionId, messages, customTitle, tokens)
-            }
-        }
-    }
-
     private fun scrollToBottom() {
+        if (!autoScrollToBottom) return
         SwingUtilities.invokeLater {
-            // Reset horizontal scroll to prevent left-side text clipping
-            scrollPane.viewport.viewPosition = java.awt.Point(
-                0,
-                scrollPane.viewport.viewSize.height - scrollPane.viewport.extentSize.height
-            )
+            scrollPane.validate()
+            programmaticScroll = true
+            val bar = scrollPane.verticalScrollBar
+            bar.value = bar.maximum
+            programmaticScroll = false
         }
     }
 
@@ -616,24 +788,43 @@ class ChatPanel(
         thinkingText: StringBuilder,
         responseText: StringBuilder,
         toolUseBlocks: List<ContentBlock.ToolUse> = emptyList(),
+        toolResults: Map<String, Pair<String, Boolean>> = emptyMap(),
+        textCheckpoints: List<Int> = emptyList(),
         stopped: Boolean = false
     ): List<ContentBlock> {
         val blocks = mutableListOf<ContentBlock>()
         if (thinkingText.isNotEmpty()) {
             blocks.add(ContentBlock.Thinking(thinkingText.toString()))
         }
-        // Add tool use blocks
-        blocks.addAll(toolUseBlocks)
 
-        val text = if (stopped && responseText.isNotEmpty()) {
-            "${responseText}\n\n[Stopped]"
-        } else if (stopped) {
-            "[Stopped]"
-        } else {
-            responseText.toString()
+        val fullText = responseText.toString()
+        val suffix = if (stopped) "\n\n[Stopped]" else ""
+
+        // Interleave text segments with tool blocks in document order
+        var prevIdx = 0
+        for (i in toolUseBlocks.indices) {
+            val checkpoint = if (i < textCheckpoints.size) textCheckpoints[i].coerceAtMost(fullText.length) else fullText.length
+            val segment = fullText.substring(prevIdx, checkpoint)
+            if (segment.isNotBlank()) {
+                blocks.add(ContentBlock.Text(segment))
+            }
+            val toolUse = toolUseBlocks[i]
+            blocks.add(toolUse)
+            // Add corresponding tool result if available
+            toolResults[toolUse.id]?.let { (content, isError) ->
+                if (content.isNotBlank()) {
+                    blocks.add(ContentBlock.ToolResult(toolUseId = toolUse.id, content = content, isError = isError))
+                }
+            }
+            prevIdx = checkpoint
         }
-        if (text.isNotBlank()) {
-            blocks.add(ContentBlock.Text(text))
+
+        // Remaining text after last tool block
+        val remaining = fullText.substring(prevIdx.coerceAtMost(fullText.length)) + suffix
+        if (remaining.isNotBlank()) {
+            blocks.add(ContentBlock.Text(remaining))
+        } else if (suffix.isNotBlank()) {
+            blocks.add(ContentBlock.Text(suffix))
         }
         return blocks
     }
@@ -657,6 +848,30 @@ class ChatPanel(
     }
 
     private fun hideQuestionPanel() {
+        inputContainer.removeAll()
+        inputContainer.add(inputPanel, BorderLayout.CENTER)
+        inputContainer.revalidate()
+        inputContainer.repaint()
+    }
+
+    private fun showPlanActionButtons(onResult: (Boolean) -> Unit) {
+        inputContainer.removeAll()
+        val panel = PlanActionPanel(
+            onApprove = {
+                hidePlanPanel()
+                onResult(true)
+            },
+            onDeny = {
+                hidePlanPanel()
+                onResult(false)
+            }
+        )
+        inputContainer.add(panel, BorderLayout.CENTER)
+        inputContainer.revalidate()
+        inputContainer.repaint()
+    }
+
+    private fun hidePlanPanel() {
         inputContainer.removeAll()
         inputContainer.add(inputPanel, BorderLayout.CENTER)
         inputContainer.revalidate()
@@ -718,5 +933,6 @@ class ChatPanel(
         currentJob?.cancel()
         scope.cancel()
         provider.close()
+        statusPanel.dispose()
     }
 }

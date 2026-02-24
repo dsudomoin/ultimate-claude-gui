@@ -1147,7 +1147,7 @@ intellijPlatform {
 | 37 | AskUserQuestion dialog | ❌ | Claude задаёт вопрос пользователю через UI. Ref: `AskUserQuestionDialog` |
 | 38 | Rewind conversation | ❌ | Откат разговора к предыдущему сообщению + файлы. Ref: `RewindHandler`, `RewindSelectDialog` |
 | 39 | Status bar widget | ❌ | Индикатор текущей задачи в статусной строке IDE. Ref: `ClaudeStatusBarWidget` |
-| 40 | Grouped tool blocks | ❌ | Группировка последовательных одинаковых tool calls. Ref: `BashToolGroupBlock`, `EditToolGroupBlock` |
+| 40 | Grouped tool blocks | ✅ | ToolGroupBlock + streaming/history grouping в MessageBubble |
 | 41 | Export session (MD/JSON) | ❌ | Экспорт чата в файл. Ref: `FileExportHandler` |
 | 42 | Permission "Always Allow" | ❌ | Запоминание разрешения для инструмента. Ref: `PermissionService` с правилами |
 | 43 | Auto-deny dangerous paths | ❌ | Автоматический отказ для /etc, ~/.ssh и т.д. Ref: `PermissionHandler` |

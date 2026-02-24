@@ -9,11 +9,14 @@ import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
 import ru.dsudomoin.claudecodegui.MyMessageBundle
 import ru.dsudomoin.claudecodegui.bridge.NodeDetector
+import ru.dsudomoin.claudecodegui.service.LanguageChangeListener
 import ru.dsudomoin.claudecodegui.service.OAuthCredentialService
 import ru.dsudomoin.claudecodegui.service.SettingsService
 import java.awt.FlowLayout
 import javax.swing.DefaultComboBoxModel
+import javax.swing.DefaultListCellRenderer
 import javax.swing.JComponent
+import javax.swing.JList
 import javax.swing.JPanel
 
 class ClaudeSettingsConfigurable : Configurable {
@@ -24,15 +27,26 @@ class ClaudeSettingsConfigurable : Configurable {
     private var nodePathField: JBTextField? = null
     private var claudePathField: JBTextField? = null
     private var permissionModeCombo: ComboBox<String>? = null
+    private var languageCombo: ComboBox<String>? = null
     private var panel: JPanel? = null
 
     companion object {
         private val PERMISSION_MODES = arrayOf("default", "plan", "bypassPermissions")
-        private val PERMISSION_MODE_LABELS = mapOf(
-            "default" to MyMessageBundle.message("settings.permDefault"),
-            "plan" to MyMessageBundle.message("settings.permPlan"),
-            "bypassPermissions" to MyMessageBundle.message("settings.permBypass")
-        )
+        private val LANGUAGES = arrayOf("", "en", "ru")
+
+        private fun permissionModeLabel(value: String): String = when (value) {
+            "default" -> MyMessageBundle.message("settings.permDefault")
+            "plan" -> MyMessageBundle.message("settings.permPlan")
+            "bypassPermissions" -> MyMessageBundle.message("settings.permBypass")
+            else -> value
+        }
+
+        private fun languageLabel(value: String): String = when (value) {
+            "" -> MyMessageBundle.message("settings.lang.default")
+            "en" -> "English"
+            "ru" -> "Русский"
+            else -> value
+        }
     }
 
     override fun getDisplayName() = "Claude Code GUI"
@@ -45,12 +59,22 @@ class ClaudeSettingsConfigurable : Configurable {
         nodePathField = JBTextField()
         claudePathField = JBTextField()
         permissionModeCombo = ComboBox(DefaultComboBoxModel(PERMISSION_MODES)).apply {
-            renderer = object : javax.swing.DefaultListCellRenderer() {
+            renderer = object : DefaultListCellRenderer() {
                 override fun getListCellRendererComponent(
-                    list: javax.swing.JList<*>?, value: Any?, index: Int,
+                    list: JList<*>?, value: Any?, index: Int,
                     isSelected: Boolean, cellHasFocus: Boolean
                 ) = super.getListCellRendererComponent(
-                    list, PERMISSION_MODE_LABELS[value] ?: value, index, isSelected, cellHasFocus
+                    list, permissionModeLabel(value as? String ?: ""), index, isSelected, cellHasFocus
+                )
+            }
+        }
+        languageCombo = ComboBox(DefaultComboBoxModel(LANGUAGES)).apply {
+            renderer = object : DefaultListCellRenderer() {
+                override fun getListCellRendererComponent(
+                    list: JList<*>?, value: Any?, index: Int,
+                    isSelected: Boolean, cellHasFocus: Boolean
+                ) = super.getListCellRendererComponent(
+                    list, languageLabel(value as? String ?: ""), index, isSelected, cellHasFocus
                 )
             }
         }
@@ -65,22 +89,24 @@ class ClaudeSettingsConfigurable : Configurable {
         panel = FormBuilder.createFormBuilder()
             .addComponent(loginStatus)
             .addSeparator()
-            .addLabeledComponent("Node.js Path:", nodePathField!!)
-            .addComponentToRightColumn(JBLabel("Auto-detected: $detectedNode").apply {
+            .addLabeledComponent(MyMessageBundle.message("settings.language") + ":", languageCombo!!)
+            .addSeparator()
+            .addLabeledComponent(MyMessageBundle.message("settings.nodePath") + ":", nodePathField!!)
+            .addComponentToRightColumn(JBLabel(MyMessageBundle.message("settings.nodeAutoDetected", detectedNode)).apply {
                 foreground = JBColor.GRAY
                 font = font.deriveFont(font.size2D - 1f)
             })
-            .addLabeledComponent("Claude Executable Path:", claudePathField!!)
-            .addComponentToRightColumn(JBLabel("Auto-detected: $detectedClaude").apply {
+            .addLabeledComponent(MyMessageBundle.message("settings.claudePath") + ":", claudePathField!!)
+            .addComponentToRightColumn(JBLabel(MyMessageBundle.message("settings.nodeAutoDetected", detectedClaude)).apply {
                 foreground = JBColor.GRAY
                 font = font.deriveFont(font.size2D - 1f)
             })
             .addSeparator()
-            .addLabeledComponent("Model:", modelField!!)
-            .addLabeledComponent("Max Tokens:", maxTokensField!!)
-            .addLabeledComponent("Permission Mode:", permissionModeCombo!!)
-            .addLabeledComponent("Base URL:", baseUrlField!!)
-            .addLabeledComponent("System Prompt:", systemPromptField!!)
+            .addLabeledComponent(MyMessageBundle.message("settings.model") + ":", modelField!!)
+            .addLabeledComponent(MyMessageBundle.message("settings.maxTokens") + ":", maxTokensField!!)
+            .addLabeledComponent(MyMessageBundle.message("settings.permissionMode") + ":", permissionModeCombo!!)
+            .addLabeledComponent(MyMessageBundle.message("settings.baseUrl") + ":", baseUrlField!!)
+            .addLabeledComponent(MyMessageBundle.message("settings.systemPrompt") + ":", systemPromptField!!)
             .addComponentFillVertically(JPanel(), 0)
             .panel
 
@@ -121,7 +147,8 @@ class ClaudeSettingsConfigurable : Configurable {
                 systemPromptField?.text != s.systemPrompt ||
                 nodePathField?.text != s.nodePath ||
                 claudePathField?.text != s.claudeExecutablePath ||
-                permissionModeCombo?.selectedItem != s.permissionMode
+                permissionModeCombo?.selectedItem != s.permissionMode ||
+                languageCombo?.selectedItem != s.language
     }
 
     override fun apply() {
@@ -133,6 +160,13 @@ class ClaudeSettingsConfigurable : Configurable {
         s.nodePath = nodePathField?.text ?: ""
         s.claudeExecutablePath = claudePathField?.text ?: ""
         s.permissionMode = permissionModeCombo?.selectedItem as? String ?: "default"
+        val newLang = languageCombo?.selectedItem as? String ?: ""
+        if (newLang != s.language) {
+            s.language = newLang
+            MyMessageBundle.clearCache()
+            com.intellij.openapi.application.ApplicationManager.getApplication().messageBus
+                .syncPublisher(LanguageChangeListener.TOPIC).onLanguageChanged()
+        }
     }
 
     override fun reset() {
@@ -144,5 +178,6 @@ class ClaudeSettingsConfigurable : Configurable {
         nodePathField?.text = s.nodePath
         claudePathField?.text = s.claudeExecutablePath
         permissionModeCombo?.selectedItem = s.permissionMode
+        languageCombo?.selectedItem = s.language
     }
 }

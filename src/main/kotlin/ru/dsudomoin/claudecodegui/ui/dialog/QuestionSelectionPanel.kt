@@ -2,6 +2,7 @@ package ru.dsudomoin.claudecodegui.ui.dialog
 
 import ru.dsudomoin.claudecodegui.MyMessageBundle
 import com.intellij.ui.JBColor
+import ru.dsudomoin.claudecodegui.ui.theme.ThemeColors
 import com.intellij.util.ui.JBUI
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -32,17 +33,17 @@ class QuestionSelectionPanel(
 ) : JPanel(BorderLayout()) {
 
     companion object {
-        private val BG = JBColor(Color(0xFA, 0xFA, 0xFA), Color(0x1E, 0x1F, 0x22))
-        private val BORDER_COLOR = JBColor(Color(0xD0, 0xD0, 0xD0), Color(0x3E, 0x3E, 0x42))
-        private val TEXT_PRIMARY = JBColor(Color(0x1A, 0x1A, 0x1A), Color(0xE0, 0xE0, 0xE0))
-        private val TEXT_SECONDARY = JBColor(Color(0x66, 0x66, 0x66), Color(0x88, 0x88, 0x88))
-        private val ACCENT = JBColor(Color(0x00, 0x78, 0xD4), Color(0x58, 0x9D, 0xF6))
-        private val CHIP_BG = JBColor(Color(0xF0, 0xF0, 0xF0), Color(0x2A, 0x2D, 0x2E))
-        private val CHIP_SELECTED_BG = JBColor(Color(0xE3, 0xF2, 0xFD), Color(0x09, 0x47, 0x71))
-        private val CHIP_HOVER = JBColor(Color(0xE8, 0xE8, 0xE8), Color(0x33, 0x36, 0x37))
-        private val CHIP_BORDER = JBColor(Color(0xD0, 0xD0, 0xD0), Color(0x45, 0x45, 0x45))
-        private val CHIP_SELECTED_BORDER = JBColor(Color(0x00, 0x78, 0xD4), Color(0x58, 0x9D, 0xF6))
-        private val OTHER_BORDER = JBColor(Color(0xB0, 0xB0, 0xB0), Color(0x55, 0x55, 0x55))
+        private val BG get() = ThemeColors.surfaceSecondary
+        private val BORDER_COLOR get() = ThemeColors.borderNormal
+        private val TEXT_PRIMARY get() = ThemeColors.textPrimary
+        private val TEXT_SECONDARY get() = ThemeColors.textSecondary
+        private val ACCENT get() = ThemeColors.accent
+        private val CHIP_BG get() = ThemeColors.chipBg
+        private val CHIP_SELECTED_BG get() = ThemeColors.chipSelectedBg
+        private val CHIP_HOVER get() = ThemeColors.chipHover
+        private val CHIP_BORDER get() = ThemeColors.chipBorder
+        private val CHIP_SELECTED_BORDER get() = ThemeColors.chipSelectedBorder
+        private val OTHER_BORDER get() = ThemeColors.quoteBorder
         private const val ARC = 8
         private const val OTHER_MARKER = "__OTHER__"
     }

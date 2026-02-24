@@ -30,6 +30,10 @@
                                  instance="ru.dsudomoin.claudecodegui.settings.ClaudeSettingsConfigurable"
                                  id="ru.dsudomoin.claudecodegui.settings"
                                  displayName="Claude Code GUI"/>
+        <applicationConfigurable parentId="ru.dsudomoin.claudecodegui.settings"
+                                 instance="ru.dsudomoin.claudecodegui.settings.AppearanceConfigurable"
+                                 id="ru.dsudomoin.claudecodegui.settings.appearance"
+                                 displayName="Appearance"/>
 
         <!-- Notifications -->
         <notificationGroup id="Claude Code" displayType="BALLOON"/>

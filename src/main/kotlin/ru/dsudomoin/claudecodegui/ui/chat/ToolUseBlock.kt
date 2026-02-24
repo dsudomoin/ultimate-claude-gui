@@ -1,8 +1,12 @@
 package ru.dsudomoin.claudecodegui.ui.chat
 
 import com.intellij.icons.AllIcons
+import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.openapi.editor.colors.EditorFontType
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
-import com.intellij.ui.JBColor
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
@@ -10,11 +14,14 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import ru.dsudomoin.claudecodegui.MyMessageBundle
 import ru.dsudomoin.claudecodegui.ui.diff.InteractiveDiffManager
+import ru.dsudomoin.claudecodegui.ui.theme.ThemeColors
 import java.awt.*
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import java.awt.font.TextAttribute
 import java.awt.geom.Ellipse2D
 import java.awt.geom.RoundRectangle2D
+import java.io.File
 import javax.swing.BoxLayout
 import javax.swing.Icon
 import javax.swing.JPanel
@@ -37,18 +44,33 @@ import javax.swing.Timer
  * └──────────────────────────────────────────┘
  */
 class ToolUseBlock(
-    private val toolName: String,
-    private val summary: String = "",
+    val toolName: String,
+    val summary: String = "",
     initialStatus: Status = Status.PENDING,
-    private val input: JsonObject = JsonObject(emptyMap()),
+    val input: JsonObject = JsonObject(emptyMap()),
     private val project: Project? = null
 ) : JPanel(BorderLayout()) {
 
     enum class Status { PENDING, COMPLETED, ERROR }
 
+    enum class ToolCategory { READ, EDIT, BASH, SEARCH, OTHER }
+
     companion object {
-        private const val ARC = 10
+        private const val ARC = 16
         private const val HEADER_HEIGHT = 36
+
+        fun getToolCategory(toolName: String): ToolCategory {
+            val lower = toolName.lowercase()
+            return when {
+                lower in setOf("read", "read_file") -> ToolCategory.READ
+                lower in setOf("edit", "edit_file", "replace_string", "write", "write_to_file",
+                    "create_file", "save-file") -> ToolCategory.EDIT
+                lower in setOf("bash", "run_terminal_cmd", "execute_command", "executecommand",
+                    "shell_command") -> ToolCategory.BASH
+                lower in setOf("grep", "search", "glob", "find", "list", "listfiles") -> ToolCategory.SEARCH
+                else -> ToolCategory.OTHER
+            }
+        }
 
         fun getToolDisplayName(toolName: String): String {
             val lower = toolName.lowercase()
@@ -131,27 +153,25 @@ class ToolUseBlock(
             "edit", "edit_file", "replace_string",
             "write", "write_to_file", "create_file", "save-file",
             "bash", "run_terminal_cmd", "execute_command", "executecommand", "shell_command",
+            "task",
         )
 
-        // Colors
-        private val BG = JBColor(Color(0xFF, 0xFF, 0xFF), Color(0x1E, 0x1E, 0x1E))
-        private val BORDER_COLOR = JBColor(Color(0xD0, 0xD0, 0xD0), Color(0x33, 0x33, 0x33))
-        private val HOVER_BG = JBColor(Color(0xF3, 0xF3, 0xF3), Color(0x25, 0x25, 0x26))
-        private val TITLE_COLOR = JBColor(Color(0x1A, 0x1A, 0x1A), Color(0xE0, 0xE0, 0xE0))
-        private val SUMMARY_COLOR = JBColor(Color(0x66, 0x66, 0x66), Color(0x85, 0x85, 0x85))
-        private val DETAIL_BG = JBColor(Color(0xF5, 0xF5, 0xF5), Color(0x25, 0x25, 0x26))
-
-        private val STATUS_SUCCESS = JBColor(Color(0x10, 0x7C, 0x10), Color(0x4C, 0xAF, 0x50))
-        private val STATUS_WARNING = JBColor(Color(0xF7, 0x63, 0x0C), Color(0xFF, 0x98, 0x00))
-        private val STATUS_ERROR = JBColor(Color(0xE8, 0x11, 0x23), Color(0xF4, 0x43, 0x36))
-
-        // Diff colors
-        private val DIFF_ADD_BG = JBColor(Color(20, 80, 20, 77), Color(20, 80, 20, 77))
-        private val DIFF_DEL_BG = JBColor(Color(80, 20, 20, 77), Color(80, 20, 20, 77))
-        private val DIFF_ADD_MARKER = JBColor(Color(0x10, 0x7C, 0x10), Color(0x89, 0xD1, 0x85))
-        private val DIFF_DEL_MARKER = JBColor(Color(0xE8, 0x11, 0x23), Color(0xFF, 0x6B, 0x6B))
-        private val LINK_COLOR = JBColor(Color(0x00, 0x78, 0xD4), Color(0x58, 0x9D, 0xF6))
-        private val ICON_HOVER_BG = JBColor(Color(0x00, 0x00, 0x00, 0x15), Color(0xFF, 0xFF, 0xFF, 0x15))
+        // Colors sourced from ThemeColors
+        private val BG get() = ThemeColors.surfacePrimary
+        private val BORDER_COLOR get() = ThemeColors.borderNormal
+        private val HOVER_BG get() = ThemeColors.surfaceHover
+        private val TITLE_COLOR get() = ThemeColors.textPrimary
+        private val SUMMARY_COLOR get() = ThemeColors.textSecondary
+        private val DETAIL_BG get() = ThemeColors.surfaceSecondary
+        private val STATUS_SUCCESS get() = ThemeColors.statusSuccess
+        private val STATUS_WARNING get() = ThemeColors.statusWarning
+        private val STATUS_ERROR get() = ThemeColors.statusError
+        private val DIFF_ADD_MARKER get() = ThemeColors.diffAddFg
+        private val DIFF_DEL_MARKER get() = ThemeColors.diffDelFg
+        private val DIFF_ADD_BG_EDITOR get() = ThemeColors.diffAddBg
+        private val DIFF_DEL_BG_EDITOR get() = ThemeColors.diffDelBg
+        private val LINK_COLOR get() = ThemeColors.accent
+        private val ICON_HOVER_BG get() = ThemeColors.iconHoverBg
 
         // Tools that support interactive diff (file-editing tools)
         private val FILE_EDIT_TOOLS = setOf(
@@ -187,6 +207,11 @@ class ToolUseBlock(
     private var rejectIconBounds: Rectangle? = null
     private var hoveredIcon: String? = null
 
+    // File path link in summary
+    private val filePath: String? = getStr(input, "file_path") ?: getStr(input, "path") ?: getStr(input, "target_file")
+    private var summaryBounds: Rectangle? = null
+    private var hoveredSummary = false
+
     private val breathingTimer = Timer(30) {
         breathingAlpha += breathingDirection * 0.02f
         if (breathingAlpha <= 0.4f) {
@@ -219,6 +244,7 @@ class ToolUseBlock(
                 override fun mouseExited(e: MouseEvent) {
                     hover = false
                     if (hoveredIcon != null) { hoveredIcon = null }
+                    if (hoveredSummary) { hoveredSummary = false }
                     repaint()
                 }
                 override fun mouseClicked(e: MouseEvent) {
@@ -227,11 +253,18 @@ class ToolUseBlock(
                         diffIconBounds?.let { if (it.contains(e.point)) { onShowDiff(); return } }
                         rejectIconBounds?.let { if (it.contains(e.point)) { onReject(); return } }
                     }
+                    // Check file path link click
+                    if (filePath != null && summaryBounds?.contains(e.point) == true) {
+                        onOpenFile(); return
+                    }
                     if (isExpandable) toggleExpanded()
                 }
             })
             addMouseMotionListener(object : java.awt.event.MouseMotionAdapter() {
                 override fun mouseMoved(e: MouseEvent) {
+                    var needRepaint = false
+
+                    // Track action icon hover
                     if (hasActionIcons && status == Status.COMPLETED && !reverted) {
                         val newHover = when {
                             diffIconBounds?.contains(e.point) == true -> "diff"
@@ -240,15 +273,26 @@ class ToolUseBlock(
                         }
                         if (newHover != hoveredIcon) {
                             hoveredIcon = newHover
-                            cursor = if (newHover != null)
-                                Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-                            else if (isExpandable)
-                                Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-                            else
-                                Cursor.getDefaultCursor()
-                            repaint()
+                            needRepaint = true
                         }
                     }
+
+                    // Track file path summary hover
+                    val overSummary = filePath != null && summaryBounds?.contains(e.point) == true
+                    if (overSummary != hoveredSummary) {
+                        hoveredSummary = overSummary
+                        needRepaint = true
+                    }
+
+                    // Update cursor
+                    cursor = when {
+                        hoveredIcon != null -> Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                        hoveredSummary -> Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                        isExpandable -> Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                        else -> Cursor.getDefaultCursor()
+                    }
+
+                    if (needRepaint) repaint()
                 }
             })
         }
@@ -288,33 +332,7 @@ class ToolUseBlock(
             g2.drawString(displayName, x, textY)
             x += fm.stringWidth(displayName) + JBUI.scale(8)
 
-            // Diff badge for edit tools
-            val lower = toolName.lowercase()
-            if (lower in setOf("edit", "edit_file", "replace_string")) {
-                val diffInfo = computeDiffInfo()
-                if (diffInfo != null && (diffInfo.first > 0 || diffInfo.second > 0)) {
-                    val badgeFont = (font ?: g2.font).deriveFont(Font.PLAIN, JBUI.scale(11).toFloat())
-                    g2.font = badgeFont
-                    val bfm = g2.fontMetrics
-
-                    if (diffInfo.first > 0) {
-                        val addText = "+${diffInfo.first}"
-                        g2.color = DIFF_ADD_MARKER
-                        g2.drawString(addText, x, textY)
-                        x += bfm.stringWidth(addText) + JBUI.scale(4)
-                    }
-                    if (diffInfo.second > 0) {
-                        val delText = "-${diffInfo.second}"
-                        g2.color = DIFF_DEL_MARKER
-                        g2.drawString(delText, x, textY)
-                        x += bfm.stringWidth(delText) + JBUI.scale(6)
-                    }
-
-                    g2.font = titleFont
-                }
-            }
-
-            // ── Right side: [summary...] [diff-icon] [reject-icon] [●] ──
+            // ── Right side: [●] [reject-icon] [diff-icon] ──
 
             val dotSize = JBUI.scale(8).toFloat()
             val dotX = width - padding - dotSize
@@ -354,16 +372,64 @@ class ToolUseBlock(
                 rejectIconBounds = null
             }
 
-            // Summary text (truncated to fit available space)
+            // Pre-calculate diff badge width to reserve space
+            val lower = toolName.lowercase()
+            var diffBadgeWidth = 0
+            var diffInfo: Pair<Int, Int>? = null
+            if (lower in setOf("edit", "edit_file", "replace_string")) {
+                diffInfo = computeDiffInfo()
+                if (diffInfo != null && (diffInfo.first > 0 || diffInfo.second > 0)) {
+                    val badgeFont = (font ?: g2.font).deriveFont(Font.PLAIN, JBUI.scale(11).toFloat())
+                    val bfm = getFontMetrics(badgeFont)
+                    if (diffInfo.first > 0) diffBadgeWidth += bfm.stringWidth("+${diffInfo.first}") + JBUI.scale(4)
+                    if (diffInfo.second > 0) diffBadgeWidth += bfm.stringWidth("-${diffInfo.second}") + JBUI.scale(4)
+                    diffBadgeWidth += JBUI.scale(4) // gap before badge
+                }
+            }
+
+            // Summary text (truncated to fit available space minus diff badge)
             if (summary.isNotEmpty()) {
-                val summaryFont = titleFont.deriveFont(Font.PLAIN)
+                val isLink = filePath != null
+                val baseSummaryFont = titleFont.deriveFont(Font.PLAIN)
+                val summaryFont = if (isLink && hoveredSummary) {
+                    baseSummaryFont.deriveFont(mapOf(TextAttribute.UNDERLINE to TextAttribute.UNDERLINE_ON))
+                } else {
+                    baseSummaryFont
+                }
                 g2.font = summaryFont
-                g2.color = SUMMARY_COLOR
+                g2.color = if (isLink) LINK_COLOR else SUMMARY_COLOR
                 val sfm = g2.fontMetrics
-                val maxSummaryWidth = rightEdge - x - JBUI.scale(4)
+                val maxSummaryWidth = rightEdge - x - JBUI.scale(4) - diffBadgeWidth
                 if (maxSummaryWidth > JBUI.scale(30)) {
                     val truncated = truncateText(summary, sfm, maxSummaryWidth)
                     g2.drawString(truncated, x, textY)
+                    val textWidth = sfm.stringWidth(truncated)
+                    summaryBounds = Rectangle(x, 0, textWidth, height)
+                    x += textWidth + JBUI.scale(4)
+                } else {
+                    summaryBounds = null
+                }
+            } else {
+                summaryBounds = null
+            }
+
+            // Diff badge for edit tools (after summary)
+            if (diffInfo != null && (diffInfo.first > 0 || diffInfo.second > 0)) {
+                val badgeFont = (font ?: g2.font).deriveFont(Font.PLAIN, JBUI.scale(11).toFloat())
+                g2.font = badgeFont
+                val bfm = g2.fontMetrics
+
+                if (diffInfo.first > 0) {
+                    val addText = "+${diffInfo.first}"
+                    g2.color = DIFF_ADD_MARKER
+                    g2.drawString(addText, x, textY)
+                    x += bfm.stringWidth(addText) + JBUI.scale(4)
+                }
+                if (diffInfo.second > 0) {
+                    val delText = "-${diffInfo.second}"
+                    g2.color = DIFF_DEL_MARKER
+                    g2.drawString(delText, x, textY)
+                    x += bfm.stringWidth(delText) + JBUI.scale(4)
                 }
             }
 
@@ -383,7 +449,19 @@ class ToolUseBlock(
         }
     }
 
-    // ── Actions (Diff / Reject) ────────────────────────────────────────────
+    // ── Actions (Open file / Diff / Reject) ────────────────────────────────
+
+    private fun onOpenFile() {
+        val proj = project ?: return
+        val path = filePath ?: return
+        val file = File(path)
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val vf = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(file) ?: return@executeOnPooledThread
+            ApplicationManager.getApplication().invokeLater {
+                FileEditorManager.getInstance(proj).openFile(vf, true)
+            }
+        }
+    }
 
     private fun onShowDiff() {
         val proj = project ?: return
@@ -430,22 +508,32 @@ class ToolUseBlock(
 
     // ── Details panel (expandable content) ───────────────────────────────────
 
-    private val detailsPanel: JPanel? = if (isExpandable) createDetailsPanel() else null
+    private var detailsPanel: JPanel? = null
+    private var resultPanel: JPanel? = null
+
+    // ── Streaming output (live tail of last 3 lines during execution) ─────
+    private val streamingTail = ArrayDeque<Pair<String, Boolean>>()   // (text, isError), last 3
+    private val streamingAllLines = ArrayDeque<Pair<String, Boolean>>() // full buffer, last 500
+    private val streamingLabel = javax.swing.JLabel("").apply {
+        font = EditorColorsManager.getInstance().globalScheme.getFont(EditorFontType.PLAIN).deriveFont(JBUI.scale(11).toFloat())
+    }
+    private val streamingPanel = JPanel(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0)).apply {
+        isOpaque = false
+        border = JBUI.Borders.empty(2, 12, 4, 12)
+        isVisible = false
+        add(streamingLabel)
+    }
+
+    private val bodyPanel = JPanel().apply {
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        isOpaque = false
+        add(headerPanel)
+        add(streamingPanel)
+    }
 
     init {
         isOpaque = false
-
-        // Stack: header → details (all in a vertical wrapper)
-        val contentPanel = JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            isOpaque = false
-            add(headerPanel)
-            detailsPanel?.let {
-                it.isVisible = false
-                add(it)
-            }
-        }
-        add(contentPanel, BorderLayout.CENTER)
+        add(bodyPanel, BorderLayout.CENTER)
 
         if (initialStatus == Status.PENDING) {
             breathingTimer.start()
@@ -488,12 +576,120 @@ class ToolUseBlock(
 
     private fun toggleExpanded() {
         expanded = !expanded
+
+        // Lazy-create details panel on first expand
+        if (expanded && detailsPanel == null && isExpandable) {
+            detailsPanel = createDetailsPanel().also { dp ->
+                // Insert before resultPanel so command shows above output
+                val resultIdx = resultPanel?.let { bodyPanel.components.indexOf(it) } ?: -1
+                if (resultIdx >= 0) {
+                    bodyPanel.add(dp, resultIdx)
+                } else {
+                    bodyPanel.add(dp)
+                }
+            }
+        }
+
         detailsPanel?.isVisible = expanded
+        resultPanel?.isVisible = expanded
         revalidate()
         repaint()
-        // Scroll parent to show expanded content
         parent?.revalidate()
         parent?.repaint()
+    }
+
+    // ── Streaming output API ─────────────────────────────────────────────
+
+    /** Append a streaming output line during tool execution. */
+    fun appendStreamingLine(text: String, isError: Boolean = false) {
+        if (text.isBlank()) return
+        streamingTail.addLast(text to isError)
+        while (streamingTail.size > 3) streamingTail.removeFirst()
+        streamingAllLines.addLast(text to isError)
+        while (streamingAllLines.size > 500) streamingAllLines.removeFirst()
+        updateStreamingDisplay()
+    }
+
+    /** Called when tool completes — hides streaming panel. */
+    fun onStreamingComplete() {
+        streamingPanel.isVisible = false
+        bodyPanel.revalidate()
+        bodyPanel.repaint()
+    }
+
+    private fun updateStreamingDisplay() {
+        val html = buildString {
+            append("<html><body style='width: 400px'>")
+            streamingTail.forEachIndexed { idx, (line, isError) ->
+                val safe = line.take(200)
+                    .replace("&", "&amp;")
+                    .replace("<", "&lt;")
+                    .replace(">", "&gt;")
+                val color = if (isError) "#ff5555" else toHex(SUMMARY_COLOR)
+                append("<span style='color:$color'>$safe</span>")
+                if (idx < streamingTail.size - 1) append("<br>")
+            }
+            append("</body></html>")
+        }
+        streamingLabel.text = html
+        streamingPanel.isVisible = true
+        bodyPanel.revalidate()
+        bodyPanel.repaint()
+    }
+
+    private fun toHex(c: java.awt.Color): String {
+        return "#%02x%02x%02x".format(c.red, c.green, c.blue)
+    }
+
+    /** Set the tool result content (e.g. bash stdout/stderr). Shown in expandable area. */
+    fun setResultContent(content: String) {
+        if (content.isBlank()) return
+        val isBashTool = toolName.lowercase() in setOf("bash", "run_terminal_cmd", "execute_command", "executecommand", "shell_command")
+        if (!isBashTool) return
+
+        val panel = createResultPanel(content)
+        resultPanel = panel
+        panel.isVisible = expanded
+        bodyPanel.add(panel)
+        bodyPanel.revalidate()
+        bodyPanel.repaint()
+    }
+
+    private fun createResultPanel(content: String): JPanel {
+        val panel = object : JPanel(BorderLayout()) {
+            override fun paintComponent(g: Graphics) {
+                g.color = BORDER_COLOR
+                g.fillRect(0, 0, width, 1)
+                g.color = DETAIL_BG
+                g.fillRect(0, 1, width, height - 1)
+            }
+        }.apply {
+            isOpaque = false
+            border = JBUI.Borders.empty(1, 0, 0, 0)
+        }
+
+        val monoFont = EditorColorsManager.getInstance().globalScheme.getFont(EditorFontType.PLAIN).deriveFont(JBUI.scale(12).toFloat())
+        val displayContent = if (content.length > 2000) content.take(2000) + "\n..." else content
+
+        val textArea = JBTextArea(displayContent).apply {
+            isEditable = false
+            lineWrap = false
+            isOpaque = false
+            font = monoFont
+            foreground = SUMMARY_COLOR
+            border = JBUI.Borders.empty(8, 12, 8, 12)
+        }
+
+        val scrollPane = JBScrollPane(textArea).apply {
+            border = JBUI.Borders.empty()
+            isOpaque = false
+            viewport.isOpaque = false
+            horizontalScrollBarPolicy = javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED
+            verticalScrollBarPolicy = javax.swing.ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER
+        }
+
+        panel.add(scrollPane, BorderLayout.CENTER)
+        return panel
     }
 
     private fun hasExpandableContent(): Boolean {
@@ -508,6 +704,9 @@ class ToolUseBlock(
             lower in setOf("bash", "run_terminal_cmd", "execute_command", "shell_command") -> {
                 getStr(input, "command") != null
             }
+            lower == "task" -> {
+                getStr(input, "prompt") != null
+            }
             else -> false
         }
     }
@@ -518,101 +717,100 @@ class ToolUseBlock(
             lower in setOf("edit", "edit_file", "replace_string") -> createDiffPanel()
             lower in setOf("write", "write_to_file", "create_file") -> createContentPanel(MyMessageBundle.message("tool.section.content"), getStr(input, "content") ?: "")
             lower in setOf("bash", "run_terminal_cmd", "execute_command", "shell_command") -> createContentPanel(MyMessageBundle.message("tool.section.command"), getStr(input, "command") ?: "")
+            lower == "task" -> createTaskDetailsPanel()
             else -> JPanel()
         }
     }
 
-    // ── Diff panel for edit tools ────────────────────────────────────────────
+    // ── Diff panel for edit tools (custom-painted, no EditorEx) ─────────────
 
     private fun createDiffPanel(): JPanel {
         val oldStr = getStr(input, "old_string") ?: getStr(input, "oldString") ?: ""
         val newStr = getStr(input, "new_string") ?: getStr(input, "newString") ?: ""
-
         val diffLines = computeDiff(oldStr, newStr)
 
-        val panel = object : JPanel(BorderLayout()) {
+        val monoFont = EditorColorsManager.getInstance().globalScheme.getFont(EditorFontType.PLAIN).deriveFont(JBUI.scale(12).toFloat())
+        val markerFont = EditorColorsManager.getInstance().globalScheme.getFont(EditorFontType.BOLD).deriveFont(JBUI.scale(11).toFloat())
+
+        val linesPanel = object : JPanel() {
+            init {
+                layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                isOpaque = false
+            }
+        }
+
+        val maxLines = diffLines.size.coerceAtMost(50)
+        for (i in 0 until maxLines) {
+            val diffLine = diffLines[i]
+            val linePanel = object : JPanel(BorderLayout()) {
+                override fun paintComponent(g: Graphics) {
+                    super.paintComponent(g)
+                    when (diffLine.type) {
+                        DiffLineType.ADDED -> {
+                            g.color = DIFF_ADD_BG_EDITOR
+                            g.fillRect(0, 0, width, height)
+                        }
+                        DiffLineType.DELETED -> {
+                            g.color = DIFF_DEL_BG_EDITOR
+                            g.fillRect(0, 0, width, height)
+                        }
+                        DiffLineType.UNCHANGED -> {} // transparent
+                    }
+                }
+            }.apply {
+                isOpaque = false
+                border = JBUI.Borders.empty(0, 8, 0, 8)
+            }
+
+            // Marker (+/-/space)
+            val marker = when (diffLine.type) {
+                DiffLineType.ADDED -> "+"
+                DiffLineType.DELETED -> "-"
+                DiffLineType.UNCHANGED -> " "
+            }
+            val markerColor = when (diffLine.type) {
+                DiffLineType.ADDED -> DIFF_ADD_MARKER
+                DiffLineType.DELETED -> DIFF_DEL_MARKER
+                DiffLineType.UNCHANGED -> SUMMARY_COLOR
+            }
+            val markerLabel = javax.swing.JLabel(marker).apply {
+                font = markerFont
+                foreground = markerColor
+                preferredSize = Dimension(JBUI.scale(16), preferredSize.height)
+                horizontalAlignment = javax.swing.SwingConstants.CENTER
+            }
+
+            // Content
+            val contentLabel = javax.swing.JLabel(diffLine.content.replace("&", "&amp;").replace("<", "&lt;")).apply {
+                font = monoFont
+                foreground = TITLE_COLOR
+            }
+
+            linePanel.add(markerLabel, BorderLayout.WEST)
+            linePanel.add(contentLabel, BorderLayout.CENTER)
+            linePanel.maximumSize = Dimension(Int.MAX_VALUE, linePanel.preferredSize.height)
+            linesPanel.add(linePanel)
+        }
+
+        if (diffLines.size > maxLines) {
+            val moreLabel = javax.swing.JLabel("... ${diffLines.size - maxLines} more lines").apply {
+                font = monoFont
+                foreground = SUMMARY_COLOR
+                border = JBUI.Borders.empty(2, 24, 2, 8)
+            }
+            linesPanel.add(moreLabel)
+        }
+
+        val wrapper = object : JPanel(BorderLayout()) {
             override fun paintComponent(g: Graphics) {
-                // Separator line at the top
                 g.color = BORDER_COLOR
                 g.fillRect(0, 0, width, 1)
-                // Background
                 g.color = DETAIL_BG
                 g.fillRect(0, 1, width, height - 1)
             }
         }.apply {
             isOpaque = false
-            border = JBUI.Borders.empty(1, 0, 0, 0)
-        }
-
-        val linesPanel = object : JPanel(GridBagLayout()) {
-            init { isOpaque = false }
-        }
-
-        val monoFont = Font("JetBrains Mono", Font.PLAIN, JBUI.scale(12))
-        val gbc = GridBagConstraints().apply {
-            fill = GridBagConstraints.HORIZONTAL
-            anchor = GridBagConstraints.WEST
-            gridy = 0
-        }
-
-        for (line in diffLines) {
-            // Marker column
-            gbc.gridx = 0
-            gbc.weightx = 0.0
-            gbc.insets = Insets(0, JBUI.scale(8), 0, 0)
-            val markerLabel = object : JPanel() {
-                init {
-                    preferredSize = Dimension(JBUI.scale(20), JBUI.scale(20))
-                    minimumSize = preferredSize
-                    maximumSize = preferredSize
-                    isOpaque = false
-                }
-                override fun paintComponent(g: Graphics) {
-                    val g2 = g as Graphics2D
-                    g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
-                    g2.font = monoFont
-                    val fm = g2.fontMetrics
-                    val marker = when (line.type) {
-                        DiffLineType.ADDED -> "+"
-                        DiffLineType.DELETED -> "-"
-                        DiffLineType.UNCHANGED -> " "
-                    }
-                    g2.color = when (line.type) {
-                        DiffLineType.ADDED -> DIFF_ADD_MARKER
-                        DiffLineType.DELETED -> DIFF_DEL_MARKER
-                        DiffLineType.UNCHANGED -> SUMMARY_COLOR
-                    }
-                    g2.drawString(marker, (width - fm.stringWidth(marker)) / 2, (height + fm.ascent - fm.descent) / 2)
-                }
-            }
-            linesPanel.add(markerLabel, gbc)
-
-            // Content column
-            gbc.gridx = 1
-            gbc.weightx = 1.0
-            gbc.insets = Insets(0, JBUI.scale(4), 0, JBUI.scale(8))
-            val contentPanel = object : JPanel(BorderLayout()) {
-                init {
-                    isOpaque = true
-                    background = when (line.type) {
-                        DiffLineType.ADDED -> DIFF_ADD_BG
-                        DiffLineType.DELETED -> DIFF_DEL_BG
-                        DiffLineType.UNCHANGED -> Color(0, 0, 0, 0)
-                    }
-                }
-            }
-            val textArea = JBTextArea(line.content).apply {
-                isEditable = false
-                lineWrap = false
-                isOpaque = false
-                font = monoFont
-                foreground = TITLE_COLOR
-                border = JBUI.Borders.empty(1, 4, 1, 4)
-            }
-            contentPanel.add(textArea, BorderLayout.CENTER)
-            linesPanel.add(contentPanel, gbc)
-
-            gbc.gridy++
+            border = JBUI.Borders.empty(3, 0, 4, 0)
         }
 
         val scrollPane = JBScrollPane(linesPanel).apply {
@@ -622,9 +820,9 @@ class ToolUseBlock(
             horizontalScrollBarPolicy = javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED
             verticalScrollBarPolicy = javax.swing.ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER
         }
-        panel.add(scrollPane, BorderLayout.CENTER)
-        panel.border = JBUI.Borders.empty(4, 0, 6, 0)
-        return panel
+
+        wrapper.add(scrollPane, BorderLayout.CENTER)
+        return wrapper
     }
 
     // ── Content panel (for write/bash) ───────────────────────────────────────
@@ -642,7 +840,7 @@ class ToolUseBlock(
             border = JBUI.Borders.empty(1, 0, 0, 0)
         }
 
-        val monoFont = Font("JetBrains Mono", Font.PLAIN, JBUI.scale(12))
+        val monoFont = EditorColorsManager.getInstance().globalScheme.getFont(EditorFontType.PLAIN).deriveFont(JBUI.scale(12).toFloat())
 
         // Truncate long content
         val displayContent = if (content.length > 2000) content.take(2000) + "\n..." else content
@@ -665,6 +863,55 @@ class ToolUseBlock(
         }
 
         panel.add(scrollPane, BorderLayout.CENTER)
+        return panel
+    }
+
+    // ── Task details panel (shows prompt) ───────────────────────────────────
+
+    private fun createTaskDetailsPanel(): JPanel {
+        val prompt = getStr(input, "prompt") ?: ""
+
+        val panel = object : JPanel(BorderLayout()) {
+            override fun paintComponent(g: Graphics) {
+                g.color = BORDER_COLOR
+                g.fillRect(0, 0, width, 1)
+                g.color = DETAIL_BG
+                g.fillRect(0, 1, width, height - 1)
+            }
+        }.apply {
+            isOpaque = false
+            border = JBUI.Borders.empty(1, 0, 0, 0)
+        }
+
+        val monoFont = EditorColorsManager.getInstance().globalScheme.getFont(EditorFontType.PLAIN).deriveFont(JBUI.scale(12).toFloat())
+
+        // Label
+        val label = com.intellij.ui.components.JBLabel(MyMessageBundle.message("tool.section.prompt")).apply {
+            font = font.deriveFont(Font.BOLD, JBUI.scale(11).toFloat())
+            foreground = SUMMARY_COLOR
+            border = JBUI.Borders.empty(6, 12, 2, 12)
+        }
+
+        // Prompt text (truncate very long prompts)
+        val displayPrompt = if (prompt.length > 3000) prompt.take(3000) + "\n..." else prompt
+        val textArea = JBTextArea(displayPrompt).apply {
+            isEditable = false
+            lineWrap = true
+            wrapStyleWord = true
+            isOpaque = false
+            font = monoFont
+            foreground = TITLE_COLOR
+            border = JBUI.Borders.empty(4, 12, 8, 12)
+        }
+
+        val inner = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = false
+            add(label)
+            add(textArea)
+        }
+
+        panel.add(inner, BorderLayout.CENTER)
         return panel
     }
 

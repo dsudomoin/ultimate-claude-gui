@@ -11,6 +11,7 @@ import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.JBUI
 import ru.dsudomoin.claudecodegui.core.session.SessionInfo
 import ru.dsudomoin.claudecodegui.core.session.SessionManager
+import ru.dsudomoin.claudecodegui.ui.theme.ThemeColors
 import java.awt.*
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
@@ -32,15 +33,15 @@ class HistoryPanel(
 ) : JPanel(BorderLayout()) {
 
     companion object {
-        private val BG = JBColor(Color(0xF5, 0xF5, 0xF5), Color(0x1E, 0x1F, 0x22))
-        private val CARD_BG = JBColor(Color(0xFF, 0xFF, 0xFF), Color(0x2B, 0x2D, 0x30))
-        private val CARD_HOVER = JBColor(Color(0xEE, 0xEE, 0xEE), Color(0x33, 0x36, 0x38))
-        private val BORDER_COLOR = JBColor(Color(0xE0, 0xE0, 0xE0), Color(0x3C, 0x3C, 0x3C))
-        private val TEXT_PRIMARY = JBColor(Color(0x1A, 0x1A, 0x1A), Color(0xE0, 0xE0, 0xE0))
-        private val TEXT_SECONDARY = JBColor(Color(0x77, 0x77, 0x77), Color(0x88, 0x88, 0x88))
-        private val ACCENT = JBColor(Color(0xE8, 0x6B, 0x30), Color(0xE8, 0x8B, 0x50))
-        private val SEARCH_BG = JBColor(Color(0xFF, 0xFF, 0xFF), Color(0x25, 0x25, 0x26))
-        private val SEARCH_BORDER = JBColor(Color(0xD0, 0xD0, 0xD0), Color(0x45, 0x45, 0x45))
+        private val BG get() = ThemeColors.surfaceSecondary
+        private val CARD_BG get() = ThemeColors.cardBg
+        private val CARD_HOVER get() = ThemeColors.cardHover
+        private val BORDER_COLOR get() = ThemeColors.borderNormal
+        private val TEXT_PRIMARY get() = ThemeColors.textPrimary
+        private val TEXT_SECONDARY get() = ThemeColors.textSecondary
+        private val ACCENT get() = ThemeColors.historyAccent
+        private val SEARCH_BG get() = ThemeColors.surfacePrimary
+        private val SEARCH_BORDER get() = ThemeColors.dropdownBorder
     }
 
     private val sessionManager = SessionManager.getInstance(project)
@@ -277,7 +278,7 @@ class HistoryPanel(
                 // Relative time (right-aligned)
                 gbc.gridx = 1; gbc.weightx = 0.0; gbc.anchor = GridBagConstraints.EAST; gbc.fill = GridBagConstraints.NONE
                 gbc.insets = Insets(0, JBUI.scale(8), 0, 0)
-                centerPanel.add(JLabel(relativeTime(value.createdAt)).apply {
+                centerPanel.add(JLabel(relativeTime(value.lastTimestamp)).apply {
                     font = font.deriveFont(Font.PLAIN, JBUI.scale(11).toFloat())
                     foreground = TEXT_SECONDARY
                 }, gbc)
