@@ -7,7 +7,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
-import ru.dsudomoin.claudecodegui.MyMessageBundle
+import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.ui.diff.InteractiveDiffManager
 import ru.dsudomoin.claudecodegui.ui.theme.ThemeColors
 import java.awt.*
@@ -602,7 +602,7 @@ class StatusPanel(private val project: Project) : JPanel(BorderLayout()) {
                     g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
                     g2.font = (font ?: g2.font).deriveFont(Font.PLAIN, JBUI.scale(12).toFloat())
                     g2.color = TEXT_SECONDARY
-                    val text = MyMessageBundle.message(messageKey)
+                    val text = UcuBundle.message(messageKey)
                     val fm = g2.fontMetrics
                     g2.drawString(text, (width - fm.stringWidth(text)) / 2, (height + fm.ascent - fm.descent) / 2)
                 }

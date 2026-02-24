@@ -20,7 +20,7 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
 import kotlinx.coroutines.*
-import ru.dsudomoin.claudecodegui.MyMessageBundle
+import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.command.SlashCommandRegistry
 import ru.dsudomoin.claudecodegui.service.PromptEnhancer
 import ru.dsudomoin.claudecodegui.service.SettingsService
@@ -144,7 +144,7 @@ class ChatInputPanel(
                 g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
                 g2.color = TEXT_SECONDARY
                 g2.font = font
-                g2.drawString(MyMessageBundle.message("chat.placeholder"), insets.left, insets.top + g2.fontMetrics.ascent)
+                g2.drawString(UcuBundle.message("chat.placeholder"), insets.left, insets.top + g2.fontMetrics.ascent)
             }
         }
     }.apply {
@@ -159,11 +159,11 @@ class ChatInputPanel(
 
     // ── Toolbar buttons ─────────────────────────────────────────────────────
 
-    private val settingsButton = createIconButton(AllIcons.General.GearPlain, MyMessageBundle.message("input.settings")).apply {
+    private val settingsButton = createIconButton(AllIcons.General.GearPlain, UcuBundle.message("input.settings")).apply {
         addActionListener { showSettingsPopup() }
     }
 
-    private val attachButton = createIconButton(AllIcons.General.Add, MyMessageBundle.message("input.attach")).apply {
+    private val attachButton = createIconButton(AllIcons.General.Add, UcuBundle.message("input.attach")).apply {
         addActionListener { showAttachmentPicker() }
     }
 
@@ -191,7 +191,7 @@ class ChatInputPanel(
             isFocusPainted = false
             isOpaque = false
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-            toolTipText = MyMessageBundle.message("input.send")
+            toolTipText = UcuBundle.message("input.send")
             addActionListener { onButtonClick() }
             addMouseListener(object : MouseAdapter() {
                 override fun mouseEntered(e: MouseEvent) { hover = true; repaint() }
@@ -219,7 +219,7 @@ class ChatInputPanel(
     // ── Expand / collapse toggle button ─────────────────────────────────────
 
     private val expandButton = createIconButton(
-        AllIcons.General.ExpandComponent, MyMessageBundle.message("input.expand")
+        AllIcons.General.ExpandComponent, UcuBundle.message("input.expand")
     ).apply {
         addActionListener { toggleExpandInput() }
     }
@@ -381,7 +381,7 @@ class ChatInputPanel(
             add(modelButton)
         }
 
-        enhanceButton = createIconButton(AllIcons.Actions.Lightning, MyMessageBundle.message("enhancer.tooltip")).apply {
+        enhanceButton = createIconButton(AllIcons.Actions.Lightning, UcuBundle.message("enhancer.tooltip")).apply {
             addActionListener { onEnhancePrompt() }
         }
 
@@ -533,7 +533,7 @@ class ChatInputPanel(
         isSending = sending
         // Keep textArea enabled so user can type next message while waiting
         sendButton.repaint()
-        sendButton.toolTipText = if (sending) MyMessageBundle.message("input.stop") else MyMessageBundle.message("input.send")
+        sendButton.toolTipText = if (sending) UcuBundle.message("input.stop") else UcuBundle.message("input.send")
         modelButton.isEnabled = !sending
         modeButton.isEnabled = !sending
     }
@@ -558,12 +558,12 @@ class ChatInputPanel(
     /** Refresh all localized tooltips and labels after a language change. */
     private fun refreshLocale() {
         SwingUtilities.invokeLater {
-            settingsButton.toolTipText = MyMessageBundle.message("input.settings")
-            attachButton.toolTipText = MyMessageBundle.message("input.attach")
-            sendButton.toolTipText = if (isSending) MyMessageBundle.message("input.stop") else MyMessageBundle.message("input.send")
-            expandButton.toolTipText = MyMessageBundle.message(if (isExpanded) "input.collapse" else "input.expand")
+            settingsButton.toolTipText = UcuBundle.message("input.settings")
+            attachButton.toolTipText = UcuBundle.message("input.attach")
+            sendButton.toolTipText = if (isSending) UcuBundle.message("input.stop") else UcuBundle.message("input.send")
+            expandButton.toolTipText = UcuBundle.message(if (isExpanded) "input.collapse" else "input.expand")
             if (::enhanceButton.isInitialized) {
-                enhanceButton.toolTipText = MyMessageBundle.message("enhancer.tooltip")
+                enhanceButton.toolTipText = UcuBundle.message("enhancer.tooltip")
             }
             modeButton.text = getModeLabel()
             textArea.repaint() // placeholder re-reads from bundle in paintComponent
@@ -604,7 +604,7 @@ class ChatInputPanel(
 
     private fun getModeLabel(): String {
         val mode = PERMISSION_MODES.find { it.id == selectedModeId } ?: PERMISSION_MODES[0]
-        return "${mode.icon} ${MyMessageBundle.message(mode.shortKey)} \u25BE"
+        return "${mode.icon} ${UcuBundle.message(mode.shortKey)} \u25BE"
     }
 
     // ── Expand / collapse input ────────────────────────────────────────────
@@ -613,7 +613,7 @@ class ChatInputPanel(
         isExpanded = !isExpanded
         textArea.rows = if (isExpanded) EXPANDED_ROWS else COLLAPSED_ROWS
         expandButton.icon = if (isExpanded) AllIcons.General.CollapseComponent else AllIcons.General.ExpandComponent
-        expandButton.toolTipText = MyMessageBundle.message(if (isExpanded) "input.collapse" else "input.expand")
+        expandButton.toolTipText = UcuBundle.message(if (isExpanded) "input.collapse" else "input.expand")
         roundedPanel.revalidate()
         roundedPanel.repaint()
         var p: Container? = roundedPanel.parent
@@ -668,7 +668,7 @@ class ChatInputPanel(
 
         popup.add(createToggleItem(
             icon = "\u21C4",
-            label = MyMessageBundle.message("settings.streaming"),
+            label = UcuBundle.message("settings.streaming"),
             isOn = { streamingEnabled },
             onToggle = { enabled ->
                 streamingEnabled = enabled
@@ -678,7 +678,7 @@ class ChatInputPanel(
 
         popup.add(createToggleItem(
             icon = "\uD83D\uDCA1",
-            label = MyMessageBundle.message("settings.thinking"),
+            label = UcuBundle.message("settings.thinking"),
             isOn = { thinkingEnabled },
             onToggle = { enabled ->
                 thinkingEnabled = enabled
@@ -845,7 +845,7 @@ class ChatInputPanel(
             isContentAreaFilled = false
             isFocusPainted = false
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-            toolTipText = MyMessageBundle.message("input.removeContext")
+            toolTipText = UcuBundle.message("input.removeContext")
             addActionListener {
                 activeFileContext = null
                 fileChipPanel.removeAll()
@@ -865,7 +865,7 @@ class ChatInputPanel(
             .withFileFilter { vf ->
                 vf.extension?.lowercase() in IMAGE_EXTENSIONS
             }
-            .withTitle(MyMessageBundle.message("input.chooseImage"))
+            .withTitle(UcuBundle.message("input.chooseImage"))
         val files = FileChooser.chooseFiles(descriptor, project, null)
         for (vf in files) {
             val file = File(vf.path)
@@ -998,7 +998,7 @@ class ChatInputPanel(
             thumbLabel.icon = AllIcons.FileTypes.Image
         }
         thumbLabel.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        thumbLabel.toolTipText = MyMessageBundle.message("input.openInEditor")
+        thumbLabel.toolTipText = UcuBundle.message("input.openInEditor")
         thumbLabel.addMouseListener(object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {
                 val vf = LocalFileSystem.getInstance().findFileByIoFile(file)
@@ -1024,7 +1024,7 @@ class ChatInputPanel(
             isContentAreaFilled = false
             isFocusPainted = false
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-            toolTipText = MyMessageBundle.message("input.remove")
+            toolTipText = UcuBundle.message("input.remove")
             addActionListener {
                 attachedImages.remove(file)
                 rebuildAttachmentsPanel()
@@ -1052,7 +1052,7 @@ class ChatInputPanel(
             val item = createTwoLinePopupItem(
                 icon = "\u2728",
                 title = model.name,
-                subtitle = MyMessageBundle.message(model.descKey),
+                subtitle = UcuBundle.message(model.descKey),
                 isSelected = isSelected,
                 onClick = {
                     selectedModelId = model.id
@@ -1080,8 +1080,8 @@ class ChatInputPanel(
             val isSelected = mode.id == selectedModeId
             val item = createTwoLinePopupItem(
                 icon = mode.icon,
-                title = MyMessageBundle.message(mode.fullKey),
-                subtitle = MyMessageBundle.message(mode.descKey),
+                title = UcuBundle.message(mode.fullKey),
+                subtitle = UcuBundle.message(mode.descKey),
                 isSelected = isSelected,
                 onClick = {
                     selectedModeId = mode.id

@@ -2,7 +2,7 @@ package ru.dsudomoin.claudecodegui.ui.chat
 
 import com.intellij.icons.AllIcons
 import com.intellij.util.ui.JBUI
-import ru.dsudomoin.claudecodegui.MyMessageBundle
+import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.ui.theme.ThemeColors
 import java.awt.*
 import java.awt.event.MouseAdapter
@@ -80,7 +80,7 @@ class QueuePanel(
             g2.color = ThemeColors.textSecondary
             val fm = g2.fontMetrics
             val textY = (height + fm.ascent - fm.descent) / 2
-            g2.drawString(MyMessageBundle.message("queue.header", count), JBUI.scale(4), textY)
+            g2.drawString(UcuBundle.message("queue.header", count), JBUI.scale(4), textY)
         }
     }
 

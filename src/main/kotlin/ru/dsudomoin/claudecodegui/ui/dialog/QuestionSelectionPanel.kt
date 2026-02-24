@@ -1,6 +1,6 @@
 package ru.dsudomoin.claudecodegui.ui.dialog
 
-import ru.dsudomoin.claudecodegui.MyMessageBundle
+import ru.dsudomoin.claudecodegui.UcuBundle
 import com.intellij.ui.JBColor
 import ru.dsudomoin.claudecodegui.ui.theme.ThemeColors
 import com.intellij.util.ui.JBUI
@@ -148,12 +148,12 @@ class QuestionSelectionPanel(
         val isOtherSelected = OTHER_MARKER in selected
         val customText = customInputs[questionText]?.trim() ?: ""
         val otherDesc = if (isOtherSelected && customText.isNotEmpty() && !otherInputOpen) {
-            MyMessageBundle.message("question.otherAnswer", customText)
+            UcuBundle.message("question.otherAnswer", customText)
         } else {
-            MyMessageBundle.message("question.otherDesc")
+            UcuBundle.message("question.otherDesc")
         }
         optionsPanel.add(createOptionChip(
-            label = MyMessageBundle.message("question.otherLabel"),
+            label = UcuBundle.message("question.otherLabel"),
             desc = otherDesc,
             isSelected = isOtherSelected,
             multiSelect = multiSelect
@@ -248,11 +248,11 @@ class QuestionSelectionPanel(
             border = JBUI.Borders.empty(4, 0, 0, 0)
         }
 
-        bottomPanel.add(createActionButton(MyMessageBundle.message("question.cancel"), false) { onCancel() })
+        bottomPanel.add(createActionButton(UcuBundle.message("question.cancel"), false) { onCancel() })
 
         val isLast = currentQuestionIndex >= questions.size - 1
         val canProceed = canProceedCurrent()
-        val submitLabel = if (isLast) MyMessageBundle.message("question.submit") else MyMessageBundle.message("question.next")
+        val submitLabel = if (isLast) UcuBundle.message("question.submit") else UcuBundle.message("question.next")
         bottomPanel.add(createActionButton(submitLabel, true, enabled = canProceed) {
             if (isLast) {
                 submitAll()

@@ -6,7 +6,7 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import ru.dsudomoin.claudecodegui.MyMessageBundle
+import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.ui.chat.ToolUseBlock.ToolCategory
 import ru.dsudomoin.claudecodegui.ui.common.SwingAnimations
 import ru.dsudomoin.claudecodegui.ui.diff.InteractiveDiffManager
@@ -358,7 +358,7 @@ class ToolGroupBlock(
             ToolCategory.SEARCH -> "tool.group.search"
             ToolCategory.OTHER -> "tool.group.read"
         }
-        return MyMessageBundle.message(key, items.size)
+        return UcuBundle.message(key, items.size)
     }
 
     private fun computeAggregateDiff(): Pair<Int, Int> {

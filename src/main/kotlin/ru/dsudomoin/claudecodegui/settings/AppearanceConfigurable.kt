@@ -6,7 +6,7 @@ import com.intellij.ui.ColorPanel
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
-import ru.dsudomoin.claudecodegui.MyMessageBundle
+import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.service.SettingsService
 import ru.dsudomoin.claudecodegui.ui.theme.*
 import java.awt.*
@@ -65,7 +65,7 @@ class AppearanceConfigurable : Configurable {
         "denyBg" to "appearance.denyBg",
     )
 
-    override fun getDisplayName(): String = MyMessageBundle.message("appearance.title")
+    override fun getDisplayName(): String = UcuBundle.message("appearance.title")
 
     override fun createComponent(): JComponent {
         colorRows.clear()
@@ -84,10 +84,10 @@ class AppearanceConfigurable : Configurable {
                     onPresetSelected()
                 }
             }
-            add(JBLabel(MyMessageBundle.message("appearance.preset")))
+            add(JBLabel(UcuBundle.message("appearance.preset")))
             add(presetCombo!!)
 
-            val resetButton = JButton(MyMessageBundle.message("appearance.resetAll")).apply {
+            val resetButton = JButton(UcuBundle.message("appearance.resetAll")).apply {
                 addActionListener { onResetAll() }
             }
             add(Box.createHorizontalStrut(JBUI.scale(16)))
@@ -119,7 +119,7 @@ class AppearanceConfigurable : Configurable {
             if (key == null) {
                 // Section header
                 mainPanel.add(Box.createVerticalStrut(JBUI.scale(10)))
-                val sectionLabel = JBLabel(MyMessageBundle.message(labelKey)).apply {
+                val sectionLabel = JBLabel(UcuBundle.message(labelKey)).apply {
                     font = font.deriveFont(Font.BOLD, JBUI.scale(12).toFloat())
                     foreground = JBColor(Color(0x33, 0x33, 0x33), Color(0xCC, 0xCC, 0xCC))
                     border = JBUI.Borders.emptyBottom(4)
@@ -164,7 +164,7 @@ class AppearanceConfigurable : Configurable {
                 insets = Insets(JBUI.scale(2), 0, JBUI.scale(2), 0)
             }
             gbc.gridx = 0; gbc.weightx = 1.0
-            add(JBLabel(MyMessageBundle.message(labelKey)), gbc)
+            add(JBLabel(UcuBundle.message(labelKey)), gbc)
             gbc.gridx = 1; gbc.weightx = 0.0; gbc.insets = Insets(JBUI.scale(2), JBUI.scale(8), JBUI.scale(2), JBUI.scale(8))
             add(lightPicker, gbc)
             gbc.gridx = 2

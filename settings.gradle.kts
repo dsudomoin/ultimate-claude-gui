@@ -1,1 +1,1 @@
-rootProject.name = "claude-code-gui"
+rootProject.name = "ultimate-claude-ui"

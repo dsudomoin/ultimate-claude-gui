@@ -12,7 +12,7 @@ import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import ru.dsudomoin.claudecodegui.MyMessageBundle
+import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.ui.diff.InteractiveDiffManager
 import ru.dsudomoin.claudecodegui.ui.theme.ThemeColors
 import java.awt.*
@@ -75,31 +75,31 @@ class ToolUseBlock(
         fun getToolDisplayName(toolName: String): String {
             val lower = toolName.lowercase()
             return when {
-                lower in setOf("bash", "run_terminal_cmd", "execute_command", "executecommand", "shell_command") -> MyMessageBundle.message("tool.bash")
-                lower in setOf("write", "write_to_file", "save-file") -> MyMessageBundle.message("tool.write")
-                lower == "create_file" -> MyMessageBundle.message("tool.create")
-                lower in setOf("edit", "edit_file") -> MyMessageBundle.message("tool.edit")
-                lower == "replace_string" -> MyMessageBundle.message("tool.replace")
-                lower in setOf("read", "read_file") -> MyMessageBundle.message("tool.read")
-                lower in setOf("grep", "search") -> MyMessageBundle.message("tool.grep")
-                lower in setOf("glob", "find") -> MyMessageBundle.message("tool.glob")
-                lower in setOf("list", "listfiles") -> MyMessageBundle.message("tool.listFiles")
-                lower == "task" -> MyMessageBundle.message("tool.task")
-                lower == "taskoutput" -> MyMessageBundle.message("tool.taskOutput")
-                lower == "webfetch" -> MyMessageBundle.message("tool.webfetch")
-                lower == "websearch" -> MyMessageBundle.message("tool.websearch")
-                lower == "delete" -> MyMessageBundle.message("tool.delete")
-                lower == "notebookedit" -> MyMessageBundle.message("tool.notebook")
-                lower == "todowrite" -> MyMessageBundle.message("tool.todowrite")
-                lower in setOf("update_plan", "updateplan") -> MyMessageBundle.message("tool.updatePlan")
-                lower == "explore" -> MyMessageBundle.message("tool.explore")
-                lower == "augmentcontextengine" -> MyMessageBundle.message("tool.contextEngine")
-                lower == "createdirectory" -> MyMessageBundle.message("tool.createDir")
-                lower == "movefile" -> MyMessageBundle.message("tool.moveFile")
-                lower == "copyfile" -> MyMessageBundle.message("tool.copyFile")
-                lower in setOf("skill", "useskill", "runskill", "run_skill", "execute_skill") -> MyMessageBundle.message("tool.skill")
-                lower == "exitplanmode" -> MyMessageBundle.message("tool.exitPlanMode")
-                lower.startsWith("mcp__") -> MyMessageBundle.message("tool.mcp")
+                lower in setOf("bash", "run_terminal_cmd", "execute_command", "executecommand", "shell_command") -> UcuBundle.message("tool.bash")
+                lower in setOf("write", "write_to_file", "save-file") -> UcuBundle.message("tool.write")
+                lower == "create_file" -> UcuBundle.message("tool.create")
+                lower in setOf("edit", "edit_file") -> UcuBundle.message("tool.edit")
+                lower == "replace_string" -> UcuBundle.message("tool.replace")
+                lower in setOf("read", "read_file") -> UcuBundle.message("tool.read")
+                lower in setOf("grep", "search") -> UcuBundle.message("tool.grep")
+                lower in setOf("glob", "find") -> UcuBundle.message("tool.glob")
+                lower in setOf("list", "listfiles") -> UcuBundle.message("tool.listFiles")
+                lower == "task" -> UcuBundle.message("tool.task")
+                lower == "taskoutput" -> UcuBundle.message("tool.taskOutput")
+                lower == "webfetch" -> UcuBundle.message("tool.webfetch")
+                lower == "websearch" -> UcuBundle.message("tool.websearch")
+                lower == "delete" -> UcuBundle.message("tool.delete")
+                lower == "notebookedit" -> UcuBundle.message("tool.notebook")
+                lower == "todowrite" -> UcuBundle.message("tool.todowrite")
+                lower in setOf("update_plan", "updateplan") -> UcuBundle.message("tool.updatePlan")
+                lower == "explore" -> UcuBundle.message("tool.explore")
+                lower == "augmentcontextengine" -> UcuBundle.message("tool.contextEngine")
+                lower == "createdirectory" -> UcuBundle.message("tool.createDir")
+                lower == "movefile" -> UcuBundle.message("tool.moveFile")
+                lower == "copyfile" -> UcuBundle.message("tool.copyFile")
+                lower in setOf("skill", "useskill", "runskill", "run_skill", "execute_skill") -> UcuBundle.message("tool.skill")
+                lower == "exitplanmode" -> UcuBundle.message("tool.exitPlanMode")
+                lower.startsWith("mcp__") -> UcuBundle.message("tool.mcp")
                 else -> toolName
             }
         }
@@ -715,8 +715,8 @@ class ToolUseBlock(
         val lower = toolName.lowercase()
         return when {
             lower in setOf("edit", "edit_file", "replace_string") -> createDiffPanel()
-            lower in setOf("write", "write_to_file", "create_file") -> createContentPanel(MyMessageBundle.message("tool.section.content"), getStr(input, "content") ?: "")
-            lower in setOf("bash", "run_terminal_cmd", "execute_command", "shell_command") -> createContentPanel(MyMessageBundle.message("tool.section.command"), getStr(input, "command") ?: "")
+            lower in setOf("write", "write_to_file", "create_file") -> createContentPanel(UcuBundle.message("tool.section.content"), getStr(input, "content") ?: "")
+            lower in setOf("bash", "run_terminal_cmd", "execute_command", "shell_command") -> createContentPanel(UcuBundle.message("tool.section.command"), getStr(input, "command") ?: "")
             lower == "task" -> createTaskDetailsPanel()
             else -> JPanel()
         }
@@ -886,7 +886,7 @@ class ToolUseBlock(
         val monoFont = EditorColorsManager.getInstance().globalScheme.getFont(EditorFontType.PLAIN).deriveFont(JBUI.scale(12).toFloat())
 
         // Label
-        val label = com.intellij.ui.components.JBLabel(MyMessageBundle.message("tool.section.prompt")).apply {
+        val label = com.intellij.ui.components.JBLabel(UcuBundle.message("tool.section.prompt")).apply {
             font = font.deriveFont(Font.BOLD, JBUI.scale(11).toFloat())
             foreground = SUMMARY_COLOR
             border = JBUI.Borders.empty(6, 12, 2, 12)

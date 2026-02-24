@@ -14,7 +14,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import ru.dsudomoin.claudecodegui.MyMessageBundle
+import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.command.CommandCategory
 import ru.dsudomoin.claudecodegui.command.SlashCommandRegistry
 import ru.dsudomoin.claudecodegui.core.model.ContentBlock
@@ -348,10 +348,10 @@ class ChatPanel(
         when {
             cmd.name in SlashCommandRegistry.NEW_SESSION_ALIASES -> {
                 newChat()
-                messageListPanel.addSystemMessage(MyMessageBundle.message("cmd.clear.done"))
+                messageListPanel.addSystemMessage(UcuBundle.message("cmd.clear.done"))
             }
             cmd.name == "/help" -> {
-                val sb = StringBuilder(MyMessageBundle.message("cmd.help.title"))
+                val sb = StringBuilder(UcuBundle.message("cmd.help.title"))
                 SlashCommandRegistry.all().forEach { c ->
                     sb.append("\n  ${c.name} — ${c.description}")
                 }

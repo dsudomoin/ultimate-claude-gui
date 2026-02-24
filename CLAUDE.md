@@ -62,6 +62,6 @@ The provider returns `Flow<StreamEvent>` consumed by UI coroutines.
 - **100% Kotlin** — no Java source files
 - **Sealed classes** for algebraic types (`ContentBlock`, `StreamEvent`)
 - **Coroutines + Flow** for all async/streaming (no callbacks, no CompletableFuture)
-- **i18n** via `MyMessageBundle` with `.properties` files (EN + RU). Key access: `MyMessageBundle.message("key")`
+- **i18n** via `UcuBundle` with `.properties` files (EN + RU). Key access: `UcuBundle.message("key")`
 - **Plugin descriptor**: `src/main/resources/META-INF/plugin.xml` — register all services, actions, and extensions there
 - Theme system in `ui/theme/` with `ThemeManager`, presets, and custom color overrides

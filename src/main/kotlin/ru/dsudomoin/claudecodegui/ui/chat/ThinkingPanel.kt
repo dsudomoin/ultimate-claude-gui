@@ -1,6 +1,6 @@
 package ru.dsudomoin.claudecodegui.ui.chat
 
-import ru.dsudomoin.claudecodegui.MyMessageBundle
+import ru.dsudomoin.claudecodegui.UcuBundle
 import com.intellij.ui.JBColor
 import ru.dsudomoin.claudecodegui.ui.common.SwingAnimations
 import ru.dsudomoin.claudecodegui.ui.theme.ThemeColors
@@ -30,7 +30,7 @@ class ThinkingPanel : JPanel(BorderLayout()) {
     private var collapsed = false
     private var animating = false
 
-    private val headerLabel = JBLabel("\u25BC ${MyMessageBundle.message("thinking.active")}").apply {
+    private val headerLabel = JBLabel("\u25BC ${UcuBundle.message("thinking.active")}").apply {
         font = font.deriveFont(Font.PLAIN, JBUI.scale(11).toFloat())
         foreground = HEADER_COLOR
         border = JBUI.Borders.empty(2, 0)
@@ -73,9 +73,9 @@ class ThinkingPanel : JPanel(BorderLayout()) {
         if (collapsed == value || animating) return
         collapsed = value
         headerLabel.text = if (collapsed) {
-            "\u25B6 ${MyMessageBundle.message("thinking.done")}"
+            "\u25B6 ${UcuBundle.message("thinking.done")}"
         } else {
-            "\u25BC ${MyMessageBundle.message("thinking.active")}"
+            "\u25BC ${UcuBundle.message("thinking.active")}"
         }
 
         if (collapsed) {

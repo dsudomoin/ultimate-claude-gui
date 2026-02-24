@@ -12,7 +12,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
-import ru.dsudomoin.claudecodegui.MyMessageBundle
+import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.ui.common.BadgeChip
 import ru.dsudomoin.claudecodegui.ui.common.ChangeColors
 import ru.dsudomoin.claudecodegui.ui.common.diffBadgeText
@@ -131,8 +131,8 @@ class EditApprovalPanel(
                 filePath.substringAfterLast('/'),
                 originalDoc,
                 proposedDoc,
-                MyMessageBundle.message("permission.current"),
-                MyMessageBundle.message("permission.proposed")
+                UcuBundle.message("permission.current"),
+                UcuBundle.message("permission.proposed")
             )
 
             val diffPanel = DiffManager.getInstance().createRequestPanel(project, {}, null)

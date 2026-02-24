@@ -11,7 +11,7 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import ru.dsudomoin.claudecodegui.MyMessageBundle
+import ru.dsudomoin.claudecodegui.UcuBundle
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.Font
@@ -37,9 +37,9 @@ class DiffPermissionDialog(
     private val fileName: String = filePath.substringAfterLast('/')
 
     init {
-        title = MyMessageBundle.message("permission.wantsToUse", toolName, fileName)
-        setOKButtonText(MyMessageBundle.message("permission.allow"))
-        setCancelButtonText(MyMessageBundle.message("permission.deny"))
+        title = UcuBundle.message("permission.wantsToUse", toolName, fileName)
+        setOKButtonText(UcuBundle.message("permission.allow"))
+        setCancelButtonText(UcuBundle.message("permission.deny"))
         init()
     }
 
@@ -87,8 +87,8 @@ class DiffPermissionDialog(
             fileName,
             originalDoc,
             proposedDoc,
-            MyMessageBundle.message("permission.current"),
-            MyMessageBundle.message("permission.proposed")
+            UcuBundle.message("permission.current"),
+            UcuBundle.message("permission.proposed")
         )
 
         // Use DiffManager to create an embeddable diff panel

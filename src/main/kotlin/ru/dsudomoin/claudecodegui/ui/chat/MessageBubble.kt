@@ -9,7 +9,7 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
-import ru.dsudomoin.claudecodegui.MyMessageBundle
+import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.core.model.ContentBlock
 import ru.dsudomoin.claudecodegui.core.model.Message
 import ru.dsudomoin.claudecodegui.core.model.Role
@@ -121,7 +121,7 @@ class MessageBubble(
         // Content
         if (streaming) {
             // Streaming timer with spinner
-            val timerLabel = JBLabel(MyMessageBundle.message("streaming.generating")).apply {
+            val timerLabel = JBLabel(UcuBundle.message("streaming.generating")).apply {
                 icon = AnimatedIcon.Default()
                 font = font.deriveFont(Font.PLAIN, 11f)
                 foreground = JBColor.GRAY
@@ -143,11 +143,11 @@ class MessageBubble(
             streamingTimer = Timer(1000) {
                 val totalSeconds = (System.currentTimeMillis() - streamingStartTime) / 1000
                 val formatted = if (totalSeconds < 60) {
-                    MyMessageBundle.message("streaming.elapsed.seconds", totalSeconds)
+                    UcuBundle.message("streaming.elapsed.seconds", totalSeconds)
                 } else {
                     val minutes = totalSeconds / 60
                     val seconds = totalSeconds % 60
-                    MyMessageBundle.message("streaming.elapsed.minutes", minutes, seconds)
+                    UcuBundle.message("streaming.elapsed.minutes", minutes, seconds)
                 }
                 timerElapsed.text = formatted
             }.apply { start() }

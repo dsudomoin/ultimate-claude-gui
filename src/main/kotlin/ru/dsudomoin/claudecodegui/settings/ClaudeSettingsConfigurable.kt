@@ -7,7 +7,7 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
-import ru.dsudomoin.claudecodegui.MyMessageBundle
+import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.bridge.NodeDetector
 import ru.dsudomoin.claudecodegui.service.LanguageChangeListener
 import ru.dsudomoin.claudecodegui.service.OAuthCredentialService
@@ -35,21 +35,21 @@ class ClaudeSettingsConfigurable : Configurable {
         private val LANGUAGES = arrayOf("", "en", "ru")
 
         private fun permissionModeLabel(value: String): String = when (value) {
-            "default" -> MyMessageBundle.message("settings.permDefault")
-            "plan" -> MyMessageBundle.message("settings.permPlan")
-            "bypassPermissions" -> MyMessageBundle.message("settings.permBypass")
+            "default" -> UcuBundle.message("settings.permDefault")
+            "plan" -> UcuBundle.message("settings.permPlan")
+            "bypassPermissions" -> UcuBundle.message("settings.permBypass")
             else -> value
         }
 
         private fun languageLabel(value: String): String = when (value) {
-            "" -> MyMessageBundle.message("settings.lang.default")
+            "" -> UcuBundle.message("settings.lang.default")
             "en" -> "English"
             "ru" -> "Русский"
             else -> value
         }
     }
 
-    override fun getDisplayName() = "Claude Code GUI"
+    override fun getDisplayName() = "Ultimate Claude UI"
 
     override fun createComponent(): JComponent {
         baseUrlField = JBTextField()
@@ -89,24 +89,24 @@ class ClaudeSettingsConfigurable : Configurable {
         panel = FormBuilder.createFormBuilder()
             .addComponent(loginStatus)
             .addSeparator()
-            .addLabeledComponent(MyMessageBundle.message("settings.language") + ":", languageCombo!!)
+            .addLabeledComponent(UcuBundle.message("settings.language") + ":", languageCombo!!)
             .addSeparator()
-            .addLabeledComponent(MyMessageBundle.message("settings.nodePath") + ":", nodePathField!!)
-            .addComponentToRightColumn(JBLabel(MyMessageBundle.message("settings.nodeAutoDetected", detectedNode)).apply {
+            .addLabeledComponent(UcuBundle.message("settings.nodePath") + ":", nodePathField!!)
+            .addComponentToRightColumn(JBLabel(UcuBundle.message("settings.nodeAutoDetected", detectedNode)).apply {
                 foreground = JBColor.GRAY
                 font = font.deriveFont(font.size2D - 1f)
             })
-            .addLabeledComponent(MyMessageBundle.message("settings.claudePath") + ":", claudePathField!!)
-            .addComponentToRightColumn(JBLabel(MyMessageBundle.message("settings.nodeAutoDetected", detectedClaude)).apply {
+            .addLabeledComponent(UcuBundle.message("settings.claudePath") + ":", claudePathField!!)
+            .addComponentToRightColumn(JBLabel(UcuBundle.message("settings.nodeAutoDetected", detectedClaude)).apply {
                 foreground = JBColor.GRAY
                 font = font.deriveFont(font.size2D - 1f)
             })
             .addSeparator()
-            .addLabeledComponent(MyMessageBundle.message("settings.model") + ":", modelField!!)
-            .addLabeledComponent(MyMessageBundle.message("settings.maxTokens") + ":", maxTokensField!!)
-            .addLabeledComponent(MyMessageBundle.message("settings.permissionMode") + ":", permissionModeCombo!!)
-            .addLabeledComponent(MyMessageBundle.message("settings.baseUrl") + ":", baseUrlField!!)
-            .addLabeledComponent(MyMessageBundle.message("settings.systemPrompt") + ":", systemPromptField!!)
+            .addLabeledComponent(UcuBundle.message("settings.model") + ":", modelField!!)
+            .addLabeledComponent(UcuBundle.message("settings.maxTokens") + ":", maxTokensField!!)
+            .addLabeledComponent(UcuBundle.message("settings.permissionMode") + ":", permissionModeCombo!!)
+            .addLabeledComponent(UcuBundle.message("settings.baseUrl") + ":", baseUrlField!!)
+            .addLabeledComponent(UcuBundle.message("settings.systemPrompt") + ":", systemPromptField!!)
             .addComponentFillVertically(JPanel(), 0)
             .panel
 
@@ -119,20 +119,20 @@ class ClaudeSettingsConfigurable : Configurable {
 
         val statusLabel = JBLabel().apply {
             if (info.loggedIn && !info.expired) {
-                text = MyMessageBundle.message("settings.loggedIn", info.source)
+                text = UcuBundle.message("settings.loggedIn", info.source)
                 foreground = JBColor.namedColor("Claude.StatusOk", JBColor(0x2E7D32, 0x81C784))
             } else if (info.loggedIn && info.expired) {
-                text = MyMessageBundle.message("settings.expired")
+                text = UcuBundle.message("settings.expired")
                 foreground = JBColor.ORANGE
             } else {
-                text = MyMessageBundle.message("settings.notLoggedIn")
+                text = UcuBundle.message("settings.notLoggedIn")
                 foreground = JBColor.RED
             }
             border = JBUI.Borders.empty(4)
         }
 
         return JPanel(FlowLayout(FlowLayout.LEFT)).apply {
-            add(JBLabel(MyMessageBundle.message("settings.authStatus")).apply {
+            add(JBLabel(UcuBundle.message("settings.authStatus")).apply {
                 font = font.deriveFont(java.awt.Font.BOLD)
             })
             add(statusLabel)
@@ -163,7 +163,7 @@ class ClaudeSettingsConfigurable : Configurable {
         val newLang = languageCombo?.selectedItem as? String ?: ""
         if (newLang != s.language) {
             s.language = newLang
-            MyMessageBundle.clearCache()
+            UcuBundle.clearCache()
             com.intellij.openapi.application.ApplicationManager.getApplication().messageBus
                 .syncPublisher(LanguageChangeListener.TOPIC).onLanguageChanged()
         }

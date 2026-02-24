@@ -2,7 +2,7 @@ package ru.dsudomoin.claudecodegui.ui.approval
 
 import com.intellij.openapi.project.Project
 import com.intellij.util.ui.JBUI
-import ru.dsudomoin.claudecodegui.MyMessageBundle
+import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.ui.theme.ThemeColors
 import java.awt.BorderLayout
 import java.awt.Color
@@ -68,11 +68,11 @@ abstract class InlineApprovalPanel(
             border = JBUI.Borders.emptyTop(6)
         }
 
-        row.add(actionLink(MyMessageBundle.message("permission.allow")) { approve(false) })
+        row.add(actionLink(UcuBundle.message("permission.allow")) { approve(false) })
         row.add(separator())
-        row.add(actionLink(MyMessageBundle.message("permission.alwaysAllow")) { approve(true) })
+        row.add(actionLink(UcuBundle.message("permission.alwaysAllow")) { approve(true) })
         row.add(separator())
-        row.add(actionLink(MyMessageBundle.message("permission.deny")) { reject() })
+        row.add(actionLink(UcuBundle.message("permission.deny")) { reject() })
 
         return row
     }

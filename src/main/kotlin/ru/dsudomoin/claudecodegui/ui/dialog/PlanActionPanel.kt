@@ -3,7 +3,7 @@ package ru.dsudomoin.claudecodegui.ui.dialog
 import com.intellij.icons.AllIcons
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
-import ru.dsudomoin.claudecodegui.MyMessageBundle
+import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.ui.theme.ThemeColors
 import java.awt.*
 import java.awt.event.MouseAdapter
@@ -70,7 +70,7 @@ class PlanActionPanel(
             foreground = ICON_COLOR
         }
 
-        val descLabel = JLabel(MyMessageBundle.message("permission.planDescription")).apply {
+        val descLabel = JLabel(UcuBundle.message("permission.planDescription")).apply {
             font = font.deriveFont(Font.PLAIN, JBUI.scale(13).toFloat())
             foreground = TEXT_SECONDARY
         }
@@ -84,13 +84,13 @@ class PlanActionPanel(
         }
 
         val denyBtn = createButton(
-            text = MyMessageBundle.message("permission.planDeny"),
+            text = UcuBundle.message("permission.planDeny"),
             accent = false,
             onClick = onDeny
         )
 
         val approveBtn = createButton(
-            text = MyMessageBundle.message("permission.planApprove"),
+            text = UcuBundle.message("permission.planApprove"),
             accent = true,
             onClick = onApprove
         )

@@ -5,7 +5,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.VerticalFlowLayout
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
-import ru.dsudomoin.claudecodegui.MyMessageBundle
+import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.core.model.Message
 import ru.dsudomoin.claudecodegui.core.model.Role
 import ru.dsudomoin.claudecodegui.ui.common.MarkdownRenderer
@@ -248,7 +248,7 @@ class MessageListPanel(private val project: Project? = null) : JPanel() {
             border = JBUI.Borders.empty(40, 24, 24, 24)
 
             // Title
-            add(JLabel(MyMessageBundle.message("welcome.title")).apply {
+            add(JLabel(UcuBundle.message("welcome.title")).apply {
                 font = font.deriveFont(Font.BOLD, JBUI.scale(20).toFloat())
                 foreground = WELCOME_ACCENT
                 alignmentX = Component.CENTER_ALIGNMENT
@@ -257,7 +257,7 @@ class MessageListPanel(private val project: Project? = null) : JPanel() {
             add(Box.createVerticalStrut(JBUI.scale(6)))
 
             // Subtitle
-            add(JLabel(MyMessageBundle.message("welcome.subtitle")).apply {
+            add(JLabel(UcuBundle.message("welcome.subtitle")).apply {
                 font = font.deriveFont(Font.PLAIN, JBUI.scale(13).toFloat())
                 foreground = TEXT_SECONDARY
                 alignmentX = Component.CENTER_ALIGNMENT
@@ -274,7 +274,7 @@ class MessageListPanel(private val project: Project? = null) : JPanel() {
             )
             val icons = listOf("\uD83D\uDCAC", "\u2728", "\uD83D\uDCCE", "\uD83D\uDDBC\uFE0F")
             tips.forEachIndexed { index, key ->
-                add(createTipCard(icons[index], MyMessageBundle.message(key)))
+                add(createTipCard(icons[index], UcuBundle.message(key)))
                 if (index < tips.lastIndex) {
                     add(Box.createVerticalStrut(JBUI.scale(8)))
                 }
@@ -283,7 +283,7 @@ class MessageListPanel(private val project: Project? = null) : JPanel() {
             add(Box.createVerticalStrut(JBUI.scale(20)))
 
             // Hint
-            add(JLabel(MyMessageBundle.message("welcome.hint")).apply {
+            add(JLabel(UcuBundle.message("welcome.hint")).apply {
                 font = font.deriveFont(Font.ITALIC, JBUI.scale(12).toFloat())
                 foreground = TEXT_SECONDARY
                 alignmentX = Component.CENTER_ALIGNMENT

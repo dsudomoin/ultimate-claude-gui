@@ -1,6 +1,6 @@
 package ru.dsudomoin.claudecodegui.action
 
-import ru.dsudomoin.claudecodegui.MyMessageBundle
+import ru.dsudomoin.claudecodegui.UcuBundle
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.ActionUpdateThread
@@ -32,7 +32,7 @@ class GenerateCommitAction : AnAction("Generate Commit Message with Claude"), Du
         val project = e.project ?: return
         val commitMessage: CommitMessageI? = e.getData(VcsDataKeys.COMMIT_MESSAGE_CONTROL)
         if (commitMessage == null) {
-            notify(project, MyMessageBundle.message("commit.notFound"), NotificationType.WARNING)
+            notify(project, UcuBundle.message("commit.notFound"), NotificationType.WARNING)
             return
         }
 
@@ -41,12 +41,12 @@ class GenerateCommitAction : AnAction("Generate Commit Message with Claude"), Du
         // Get git diff (staged first, then unstaged)
         val diff = getGitDiff(basePath)
         if (diff.isNullOrBlank()) {
-            notify(project, MyMessageBundle.message("commit.noChanges"), NotificationType.WARNING)
+            notify(project, UcuBundle.message("commit.noChanges"), NotificationType.WARNING)
             return
         }
 
         // Show placeholder
-        commitMessage.setCommitMessage(MyMessageBundle.message("commit.generating"))
+        commitMessage.setCommitMessage(UcuBundle.message("commit.generating"))
 
         // Generate in background using ClaudeProvider (SDK bridge)
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
@@ -55,7 +55,7 @@ class GenerateCommitAction : AnAction("Generate Commit Message with Claude"), Du
                 SwingUtilities.invokeLater {
                     commitMessage.setCommitMessage(message)
                 }
-                notify(project, MyMessageBundle.message("commit.success"), NotificationType.INFORMATION)
+                notify(project, UcuBundle.message("commit.success"), NotificationType.INFORMATION)
             } catch (ex: CancellationException) {
                 throw ex
             } catch (ex: Exception) {
@@ -63,7 +63,7 @@ class GenerateCommitAction : AnAction("Generate Commit Message with Claude"), Du
                 SwingUtilities.invokeLater {
                     commitMessage.setCommitMessage("")
                 }
-                notify(project, MyMessageBundle.message("commit.error", ex.message ?: ""), NotificationType.ERROR)
+                notify(project, UcuBundle.message("commit.error", ex.message ?: ""), NotificationType.ERROR)
             }
         }
     }
@@ -108,7 +108,7 @@ class GenerateCommitAction : AnAction("Generate Commit Message with Claude"), Du
         }
 
         val raw = responseText.toString()
-        if (raw.isBlank()) throw RuntimeException(MyMessageBundle.message("commit.emptyResponse"))
+        if (raw.isBlank()) throw RuntimeException(UcuBundle.message("commit.emptyResponse"))
         return extractCommitMessage(raw)
     }
 

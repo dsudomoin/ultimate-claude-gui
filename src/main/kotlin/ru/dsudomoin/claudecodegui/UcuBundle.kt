@@ -7,12 +7,12 @@ import ru.dsudomoin.claudecodegui.service.SettingsService
 import java.text.MessageFormat
 import java.util.*
 
-private const val BUNDLE = "messages.MyMessageBundle"
+private const val BUNDLE = "messages.UcuBundle"
 
-internal object MyMessageBundle {
+internal object UcuBundle {
 
     /** DynamicBundle respects IDE locale (not system locale). Used for "IDE Default" mode. */
-    private val dynamicBundle = DynamicBundle(MyMessageBundle::class.java, BUNDLE)
+    private val dynamicBundle = DynamicBundle(UcuBundle::class.java, BUNDLE)
 
     /**
      * Returns an explicit-locale ResourceBundle when user chose "en" or "ru",
@@ -48,6 +48,6 @@ internal object MyMessageBundle {
     /** Call after language setting changes to pick up the new locale. */
     @JvmStatic
     fun clearCache() {
-        ResourceBundle.clearCache(MyMessageBundle::class.java.classLoader)
+        ResourceBundle.clearCache(UcuBundle::class.java.classLoader)
     }
 }

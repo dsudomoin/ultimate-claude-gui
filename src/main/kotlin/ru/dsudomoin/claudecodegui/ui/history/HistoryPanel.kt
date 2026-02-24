@@ -1,6 +1,6 @@
 package ru.dsudomoin.claudecodegui.ui.history
 
-import ru.dsudomoin.claudecodegui.MyMessageBundle
+import ru.dsudomoin.claudecodegui.UcuBundle
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.project.Project
 import com.intellij.ui.JBColor
@@ -58,7 +58,7 @@ class HistoryPanel(
         val header = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(4), 0)).apply {
             isOpaque = false
             border = JBUI.Borders.empty(10, 12, 6, 12)
-            val backBtn = JButton(MyMessageBundle.message("history.back")).apply {
+            val backBtn = JButton(UcuBundle.message("history.back")).apply {
                 icon = AllIcons.Actions.Back
                 isBorderPainted = false
                 isContentAreaFilled = false
@@ -83,12 +83,12 @@ class HistoryPanel(
             isFocusPainted = false
             preferredSize = Dimension(JBUI.scale(28), JBUI.scale(28))
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-            toolTipText = MyMessageBundle.message("history.refresh")
+            toolTipText = UcuBundle.message("history.refresh")
             addActionListener { refresh() }
         }
 
         val searchField = JBTextField().apply {
-            emptyText.text = MyMessageBundle.message("history.search")
+            emptyText.text = UcuBundle.message("history.search")
             preferredSize = Dimension(JBUI.scale(180), JBUI.scale(28))
             border = BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(SEARCH_BORDER, 1),
@@ -179,7 +179,7 @@ class HistoryPanel(
     private fun updateStats(label: JBLabel) {
         val totalChats = allSessions.size
         val totalMessages = allSessions.sumOf { it.messageCount }
-        label.text = MyMessageBundle.message("history.stats", totalChats, totalMessages)
+        label.text = UcuBundle.message("history.stats", totalChats, totalMessages)
     }
 
     /** Delete selected session. */
@@ -188,7 +188,7 @@ class HistoryPanel(
         val confirm = JOptionPane.showConfirmDialog(
             this,
             "Delete session \"${selected.title}\"?",
-            MyMessageBundle.message("history.deleteTitle"),
+            UcuBundle.message("history.deleteTitle"),
             JOptionPane.YES_NO_OPTION
         )
         if (confirm == JOptionPane.YES_OPTION) {
@@ -207,10 +207,10 @@ class HistoryPanel(
         val days = hours / 24
 
         return when {
-            seconds < 60 -> MyMessageBundle.message("history.secondsAgo", seconds)
-            minutes < 60 -> MyMessageBundle.message("history.minutesAgo", minutes)
-            hours < 24 -> MyMessageBundle.message("history.hoursAgo", hours)
-            days < 30 -> MyMessageBundle.message("history.daysAgo", days)
+            seconds < 60 -> UcuBundle.message("history.secondsAgo", seconds)
+            minutes < 60 -> UcuBundle.message("history.minutesAgo", minutes)
+            hours < 24 -> UcuBundle.message("history.hoursAgo", hours)
+            days < 30 -> UcuBundle.message("history.daysAgo", days)
             else -> {
                 val sdf = java.text.SimpleDateFormat("dd MMM yyyy")
                 sdf.format(java.util.Date(timestamp))
@@ -286,7 +286,7 @@ class HistoryPanel(
                 // Message count (bottom left)
                 gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 1.0; gbc.anchor = GridBagConstraints.WEST; gbc.fill = GridBagConstraints.HORIZONTAL
                 gbc.insets = Insets(JBUI.scale(3), 0, 0, 0)
-                centerPanel.add(JLabel(MyMessageBundle.message("history.messages", value.messageCount)).apply {
+                centerPanel.add(JLabel(UcuBundle.message("history.messages", value.messageCount)).apply {
                     font = font.deriveFont(Font.PLAIN, JBUI.scale(11).toFloat())
                     foreground = TEXT_SECONDARY
                 }, gbc)

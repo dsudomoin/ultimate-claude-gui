@@ -1,5 +1,5 @@
 /**
- * Claude Code GUI — Node.js Bridge
+ * Ultimate Claude UI — Node.js Bridge
  *
  * Spawned by the IntelliJ plugin as a child process.
  * Communication (bidirectional):

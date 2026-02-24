@@ -1,6 +1,6 @@
 package ru.dsudomoin.claudecodegui.ui.toolwindow
 
-import ru.dsudomoin.claudecodegui.MyMessageBundle
+import ru.dsudomoin.claudecodegui.UcuBundle
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.*
@@ -40,39 +40,39 @@ class ClaudeToolWindowFactory : ToolWindowFactory {
         })
 
         toolWindow.setTitleActions(listOf(
-            object : AnAction(MyMessageBundle.message("toolwindow.newChat"), MyMessageBundle.message("toolwindow.newChatDesc"), AllIcons.General.Add) {
+            object : AnAction(UcuBundle.message("toolwindow.newChat"), UcuBundle.message("toolwindow.newChatDesc"), AllIcons.General.Add) {
                 override fun actionPerformed(e: AnActionEvent) = addNewTab(project, toolWindow)
                 override fun update(e: AnActionEvent) {
-                    e.presentation.text = MyMessageBundle.message("toolwindow.newChat")
-                    e.presentation.description = MyMessageBundle.message("toolwindow.newChatDesc")
+                    e.presentation.text = UcuBundle.message("toolwindow.newChat")
+                    e.presentation.description = UcuBundle.message("toolwindow.newChatDesc")
                 }
             },
-            object : AnAction(MyMessageBundle.message("toolwindow.history"), MyMessageBundle.message("toolwindow.historyDesc"), AllIcons.Vcs.History) {
+            object : AnAction(UcuBundle.message("toolwindow.history"), UcuBundle.message("toolwindow.historyDesc"), AllIcons.Vcs.History) {
                 override fun actionPerformed(e: AnActionEvent) = toggleHistory(project, toolWindow)
                 override fun update(e: AnActionEvent) {
-                    e.presentation.text = MyMessageBundle.message("toolwindow.history")
-                    e.presentation.description = MyMessageBundle.message("toolwindow.historyDesc")
+                    e.presentation.text = UcuBundle.message("toolwindow.history")
+                    e.presentation.description = UcuBundle.message("toolwindow.historyDesc")
                 }
             },
-            object : AnAction(MyMessageBundle.message("toolwindow.settings"), MyMessageBundle.message("toolwindow.settingsDesc"), AllIcons.General.GearPlain) {
+            object : AnAction(UcuBundle.message("toolwindow.settings"), UcuBundle.message("toolwindow.settingsDesc"), AllIcons.General.GearPlain) {
                 override fun actionPerformed(e: AnActionEvent) {
                     ShowSettingsUtil.getInstance()
                         .showSettingsDialog(project, ru.dsudomoin.claudecodegui.settings.ClaudeSettingsConfigurable::class.java)
                 }
                 override fun update(e: AnActionEvent) {
-                    e.presentation.text = MyMessageBundle.message("toolwindow.settings")
-                    e.presentation.description = MyMessageBundle.message("toolwindow.settingsDesc")
+                    e.presentation.text = UcuBundle.message("toolwindow.settings")
+                    e.presentation.description = UcuBundle.message("toolwindow.settingsDesc")
                 }
             }
         ))
 
         // Add "Rename" and "Close Tab" to the gear dropdown menu (⚙️ in tool window header)
-        val renameAction = object : AnAction(MyMessageBundle.message("toolwindow.rename"), MyMessageBundle.message("toolwindow.renameDesc"), AllIcons.Actions.Edit) {
+        val renameAction = object : AnAction(UcuBundle.message("toolwindow.rename"), UcuBundle.message("toolwindow.renameDesc"), AllIcons.Actions.Edit) {
             override fun actionPerformed(e: AnActionEvent) {
                 renameCurrentTab(project, toolWindow)
             }
         }
-        val closeAction = object : AnAction(MyMessageBundle.message("toolwindow.closeTab"), MyMessageBundle.message("toolwindow.closeTabDesc"), AllIcons.Actions.Close) {
+        val closeAction = object : AnAction(UcuBundle.message("toolwindow.closeTab"), UcuBundle.message("toolwindow.closeTabDesc"), AllIcons.Actions.Close) {
             override fun actionPerformed(e: AnActionEvent) {
                 closeCurrentTab(toolWindow)
             }
@@ -88,7 +88,7 @@ class ClaudeToolWindowFactory : ToolWindowFactory {
     private fun addNewTab(project: Project, toolWindow: ToolWindow) {
         val num = tabCounter.incrementAndGet()
         val container = ChatContainerPanel(project, toolWindow)
-        val title = if (num == 1) MyMessageBundle.message("chat.tab") else "${MyMessageBundle.message("chat.tab")} $num"
+        val title = if (num == 1) UcuBundle.message("chat.tab") else "${UcuBundle.message("chat.tab")} $num"
         val content = ContentFactory.getInstance().createContent(container, title, false).apply {
             isCloseable = true
             setDisposer(container)
@@ -129,11 +129,11 @@ class ClaudeToolWindowFactory : ToolWindowFactory {
         val container = content.component as? ChatContainerPanel ?: return
         val chatPanel = container.chatPanel
 
-        val currentTitle = content.displayName ?: MyMessageBundle.message("chat.tab")
+        val currentTitle = content.displayName ?: UcuBundle.message("chat.tab")
         val newTitle = Messages.showInputDialog(
             project,
-            MyMessageBundle.message("toolwindow.renamePrompt"),
-            MyMessageBundle.message("toolwindow.rename"),
+            UcuBundle.message("toolwindow.renamePrompt"),
+            UcuBundle.message("toolwindow.rename"),
             null,
             currentTitle,
             null
