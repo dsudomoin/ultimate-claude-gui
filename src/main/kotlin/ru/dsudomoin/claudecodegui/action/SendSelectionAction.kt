@@ -4,7 +4,7 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.wm.ToolWindowManager
-import ru.dsudomoin.claudecodegui.ui.chat.ChatPanel
+import ru.dsudomoin.claudecodegui.ui.toolwindow.ChatContainerPanel
 
 /**
  * Sends the selected text (or current file context) to the Claude Code chat.
@@ -21,7 +21,6 @@ class SendSelectionAction : AnAction() {
         val sb = StringBuilder()
 
         val selectedText = editor?.selectionModel?.selectedText
-        val fileName = file?.name
         val filePath = file?.path
 
         if (selectedText != null && selectedText.isNotBlank()) {
@@ -47,8 +46,8 @@ class SendSelectionAction : AnAction() {
         val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("Claude Code") ?: return
         toolWindow.show {
             val content = toolWindow.contentManager.selectedContent ?: return@show
-            val chatPanel = content.component as? ChatPanel ?: return@show
-            chatPanel.sendMessage(sb.toString())
+            val container = content.component as? ChatContainerPanel ?: return@show
+            container.controller.sendMessage(sb.toString())
         }
     }
 

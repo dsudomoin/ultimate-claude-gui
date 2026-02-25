@@ -1,6 +1,9 @@
 package ru.dsudomoin.claudecodegui.bridge
 
 import com.intellij.openapi.diagnostic.Logger
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import ru.dsudomoin.claudecodegui.bridge.ProcessEnvironment.withNodeEnvironment
 import java.io.File
 import java.nio.file.Paths
@@ -15,7 +18,7 @@ object BridgeManager {
 
     private val log = Logger.getInstance(BridgeManager::class.java)
 
-    private val bridgeDir: File by lazy {
+    val bridgeDir: File by lazy {
         val home = System.getProperty("user.home")
         File(Paths.get(home, ".claude-code-gui", "bridge").toString())
     }
@@ -34,7 +37,13 @@ object BridgeManager {
     fun ensureReady(): Boolean {
         try {
             extractBridge()
-            if (!File(bridgeDir, "node_modules").isDirectory) {
+            val nodeModules = File(bridgeDir, "node_modules")
+            val needsInstall = !nodeModules.isDirectory
+                // If old SDK package exists but new one doesn't, need reinstall
+                || (File(bridgeDir, "node_modules/@anthropic-ai/claude-code").isDirectory
+                    && !File(bridgeDir, "node_modules/@anthropic-ai/claude-agent-sdk").isDirectory)
+            if (needsInstall) {
+                if (nodeModules.exists()) nodeModules.deleteRecursively()
                 installDependencies()
             }
             return isReady
@@ -114,6 +123,24 @@ object BridgeManager {
         }
 
         log.info("npm install completed successfully")
+    }
+
+    /**
+     * Returns the installed SDK version (e.g. "1.0.18"), or null if not installed.
+     */
+    fun detectSdkVersion(): String? {
+        // Check new Agent SDK package first, then legacy claude-code package
+        val pkgFile = File(bridgeDir, "node_modules/@anthropic-ai/claude-agent-sdk/package.json")
+            .takeIf { it.exists() }
+            ?: File(bridgeDir, "node_modules/@anthropic-ai/claude-code/package.json")
+        if (!pkgFile.exists()) return null
+        return try {
+            val json = Json.parseToJsonElement(pkgFile.readText()).jsonObject
+            json["version"]?.jsonPrimitive?.content
+        } catch (e: Exception) {
+            log.warn("Failed to read SDK version: ${e.message}")
+            null
+        }
     }
 
     /**

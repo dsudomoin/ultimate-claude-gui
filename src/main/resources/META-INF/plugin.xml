@@ -9,6 +9,17 @@
 
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.vcs</depends>
+    <depends>com.intellij.modules.compose</depends>
+
+    <dependencies>
+        <!-- Jewel Markdown modules for Compose-based markdown rendering -->
+        <module name="intellij.platform.jewel.markdown.core"/>
+        <module name="intellij.platform.jewel.markdown.ideLafBridgeStyling"/>
+        <module name="intellij.platform.jewel.markdown.extensions.gfmTables"/>
+        <module name="intellij.platform.jewel.markdown.extensions.gfmAlerts"/>
+        <module name="intellij.platform.jewel.markdown.extensions.gfmStrikethrough"/>
+        <module name="intellij.platform.jewel.markdown.extensions.autolink"/>
+    </dependencies>
 
     <extensions defaultExtensionNs="com.intellij">
         <!-- Tool Window -->

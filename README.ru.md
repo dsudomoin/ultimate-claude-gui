@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  Чистый Kotlin/Swing &mdash; никаких webview, никаких лагов, никаких компромиссов.
+  Kotlin + Compose/Jewel &mdash; никаких webview, никаких лагов, никаких компромиссов.
 </p>
 
 <p align="center">
@@ -29,14 +29,14 @@
 
 Большинство AI-плагинов для IDE используют встроенные браузеры (JCEF/Chromium), обёртки Electron или webview. Это значит **лишний расход памяти, долгий запуск и микро-лаги** при каждом действии.
 
-**Ultimate Claude UI идёт другим путём.** Плагин полностью написан на **нативном Kotlin/Swing** &mdash; том же тулките, что использует сама IntelliJ. Результат:
+**Ultimate Claude UI идёт другим путём.** Плагин построен на **Compose Multiplatform + Jewel** &mdash; нативном UI-тулките JetBrains для плагинов IDE. Результат:
 
 - **Мгновенный запуск** &mdash; не нужно поднимать браузерный движок
 - **Минимальный расход памяти** &mdash; никакого скрытого процесса Chromium, пожирающего RAM
-- **Плавная прокрутка** &mdash; аппаратно-ускоренный рендеринг с корректными `RenderingHints`
+- **Плавный UI** &mdash; декларативный рендеринг Compose с нативным видом IDE
 - **Ощущается как встроенная функция IDE**, а не сторонняя надстройка
 
-> *Без JCEF. Без React. Без webview. Просто быстрый нативный UI, который уважает вашу IDE.*
+> *Без JCEF. Без React. Без webview. Просто быстрый нативный Compose UI, который уважает вашу IDE.*
 
 ---
 
@@ -54,7 +54,7 @@
 - **Стриминг ответов** с таймером в реальном времени
 - **Расширенное мышление** &mdash; сворачиваемая панель для инспекции цепочки рассуждений Claude
 - **История сессий** &mdash; просмотр, поиск и возобновление прошлых диалогов
-- **Рендеринг Markdown** &mdash; полная поддержка CommonMark + GFM (таблицы, зачёркивание, автоссылки)
+- **Рендеринг Markdown** &mdash; Jewel Markdown с расширениями GFM (таблицы, зачёркивание, автоссылки, алерты)
 - **Экран приветствия** с подсказками для быстрого старта
 
 ### Код и файлы
@@ -137,7 +137,7 @@
 ┌─────────────────────────────────────────────────┐
 │                  IntelliJ IDEA                  │
 │  ┌───────────────────────────────────────────┐  │
-│  │          Ultimate Claude UI (Swing)       │  │
+│  │     Ultimate Claude UI (Compose/Jewel)    │  │
 │  │  ChatPanel · MessageList · ToolBlocks     │  │
 │  │  ApprovalPanels · DiffViewer · Themes     │  │
 │  └──────────────────┬────────────────────────┘  │
@@ -182,7 +182,7 @@ ZIP плагина появится в `build/distributions/`. Установи�
 
 ### Требования
 
-- **IntelliJ IDEA** 2025.2.4+
+- **IntelliJ IDEA** 2025.3.3+
 - **Node.js** 18+ (автоопределение или настройка в параметрах)
 - **Claude CLI** (команда `claude login` должна быть выполнена хотя бы раз)
 
@@ -204,12 +204,16 @@ ZIP плагина появится в `build/distributions/`. Установи�
 ```
 src/main/kotlin/ru/dsudomoin/claudecodegui/
 ├── ui/
-│   ├── chat/            # Сообщения, пузырьки, блоки инструментов, панель мышления
-│   ├── input/           # Ввод чата, слеш-команды, выбор модели
-│   ├── approval/        # Встроенные панели разрешений
-│   ├── dialog/          # Модальные окна (улучшение, вопрос, план, diff)
-│   ├── status/          # Задачи, изменения файлов, вкладки субагентов
-│   ├── history/         # Браузер истории сессий
+│   ├── compose/
+│   │   ├── chat/        # Сообщения, пузырьки, блоки инструментов, панель мышления
+│   │   ├── input/       # Ввод чата, слеш-команды, выбор модели
+│   │   ├── approval/    # Встроенные панели разрешений (Compose)
+│   │   ├── dialog/      # План, улучшение промпта, вопросы
+│   │   ├── status/      # Задачи, изменения файлов, вкладки субагентов
+│   │   ├── history/     # Браузер истории сессий
+│   │   ├── common/      # ComposePanelHost, markdown, бейджи
+│   │   ├── theme/       # Мост тем Compose, расширения цветов
+│   │   └── toolwindow/  # ComposeChatContainer, фабрика панелей
 │   ├── theme/           # Система цветов, пресеты, ThemeManager
 │   ├── diff/            # Интерактивный просмотр diff
 │   └── toolwindow/      # Фабрика окна инструментов
@@ -230,14 +234,14 @@ src/main/kotlin/ru/dsudomoin/claudecodegui/
 
 | Компонент | Технология |
 |---|---|
-| Язык | Kotlin 2.1.20, JVM 21 |
-| Платформа | IntelliJ Platform SDK 2025.2.4 |
+| Язык | Kotlin 2.3.10, JVM 21 |
+| Платформа | IntelliJ Platform SDK 2025.3.3 |
+| UI | Compose Multiplatform + Jewel |
+| Markdown | Jewel Markdown (GFM таблицы, алерты, зачёркивание, автоссылки) |
 | Асинхронность | kotlinx-coroutines + Flow |
 | Сериализация | kotlinx-serialization |
-| HTTP | Ktor 3.1.1 |
-| Markdown | CommonMark 0.24.0 + GFM |
 | Bridge | Node.js + `@anthropic-ai/claude-code` SDK |
-| Сборка | Gradle + IntelliJ Platform Plugin 2.10.2 |
+| Сборка | Gradle + IntelliJ Platform Plugin 2.11.0 |
 
 ---
 
@@ -248,5 +252,5 @@ MIT
 ---
 
 <p align="center">
-  <sub>Собрано на нативном Swing. Потому что ваша IDE заслуживает лучшего, чем webview.</sub>
+  <sub>Собрано на Compose/Jewel. Потому что ваша IDE заслуживает лучшего, чем webview.</sub>
 </p>

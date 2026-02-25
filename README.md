@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  Pure Kotlin/Swing &mdash; zero webviews, zero lag, zero compromise.
+  Kotlin + Compose/Jewel &mdash; zero webviews, zero lag, zero compromise.
 </p>
 
 <p align="center">
@@ -29,14 +29,14 @@
 
 Most AI plugins for IDEs rely on embedded browsers (JCEF/Chromium), Electron wrappers, or webviews. That means **extra memory, slow startup, and micro-lags** on every interaction.
 
-**Ultimate Claude UI takes a different approach.** It's built entirely in **native Kotlin/Swing** &mdash; the same toolkit IntelliJ itself uses. The result:
+**Ultimate Claude UI takes a different approach.** It's built with **Compose Multiplatform + Jewel** &mdash; JetBrains' native UI toolkit for IDE plugins. The result:
 
 - **Instant startup** &mdash; no browser engine to bootstrap
 - **Near-zero memory overhead** &mdash; no hidden Chromium process eating your RAM
-- **Buttery-smooth scrolling** &mdash; hardware-accelerated rendering with proper `RenderingHints`
+- **Buttery-smooth UI** &mdash; declarative Compose rendering with native IDE look & feel
 - **Feels like a built-in IDE feature**, not a bolt-on
 
-> *No JCEF. No React. No webviews. Just fast, native UI that respects your IDE.*
+> *No JCEF. No React. No webviews. Just fast, native Compose UI that respects your IDE.*
 
 ---
 
@@ -54,7 +54,7 @@ Most AI plugins for IDEs rely on embedded browsers (JCEF/Chromium), Electron wra
 - **Streaming responses** with real-time elapsed timer
 - **Extended thinking** &mdash; collapsible panel to inspect Claude's chain-of-thought reasoning
 - **Session history** &mdash; browse, search, and resume past conversations
-- **Markdown rendering** &mdash; full CommonMark + GFM (tables, strikethrough, autolinks)
+- **Markdown rendering** &mdash; Jewel Markdown with GFM extensions (tables, strikethrough, autolinks, alerts)
 - **Welcome screen** with quick-start tips for new users
 
 ### Code & Files
@@ -137,7 +137,7 @@ Full **English** and **Russian** translations. Follows IDE language by default, 
 ┌─────────────────────────────────────────────────┐
 │                  IntelliJ IDEA                  │
 │  ┌───────────────────────────────────────────┐  │
-│  │          Ultimate Claude UI (Swing)       │  │
+│  │     Ultimate Claude UI (Compose/Jewel)    │  │
 │  │  ChatPanel · MessageList · ToolBlocks     │  │
 │  │  ApprovalPanels · DiffViewer · Themes     │  │
 │  └──────────────────┬────────────────────────┘  │
@@ -182,7 +182,7 @@ The plugin ZIP will be in `build/distributions/`. Install it via **Settings > Pl
 
 ### Prerequisites
 
-- **IntelliJ IDEA** 2025.2.4+
+- **IntelliJ IDEA** 2025.3.3+
 - **Node.js** 18+ (auto-detected or configured in settings)
 - **Claude CLI** (`claude login` must be run at least once)
 
@@ -204,12 +204,16 @@ The plugin ZIP will be in `build/distributions/`. Install it via **Settings > Pl
 ```
 src/main/kotlin/ru/dsudomoin/claudecodegui/
 ├── ui/
-│   ├── chat/            # Messages, bubbles, tool blocks, thinking panel
-│   ├── input/           # Chat input, slash commands, model selector
-│   ├── approval/        # Inline permission panels
-│   ├── dialog/          # Modals (enhancer, question, plan, diff)
-│   ├── status/          # Todos, file changes, subagents tabs
-│   ├── history/         # Session history browser
+│   ├── compose/
+│   │   ├── chat/        # Messages, bubbles, tool blocks, thinking panel
+│   │   ├── input/       # Chat input, slash commands, model selector
+│   │   ├── approval/    # Inline permission panels (Compose)
+│   │   ├── dialog/      # Plan, enhancer, question dialogs
+│   │   ├── status/      # Todos, file changes, subagents tabs
+│   │   ├── history/     # Session history browser
+│   │   ├── common/      # ComposePanelHost, markdown, badges
+│   │   ├── theme/       # Compose theme bridge, color extensions
+│   │   └── toolwindow/  # ComposeChatContainer, panel factory
 │   ├── theme/           # Color system, presets, ThemeManager
 │   ├── diff/            # Interactive diff viewer
 │   └── toolwindow/      # Tool window factory
@@ -230,14 +234,14 @@ src/main/kotlin/ru/dsudomoin/claudecodegui/
 
 | Component | Technology |
 |---|---|
-| Language | Kotlin 2.1.20, JVM 21 |
-| Platform | IntelliJ Platform SDK 2025.2.4 |
+| Language | Kotlin 2.3.10, JVM 21 |
+| Platform | IntelliJ Platform SDK 2025.3.3 |
+| UI | Compose Multiplatform + Jewel |
+| Markdown | Jewel Markdown (GFM tables, alerts, strikethrough, autolink) |
 | Async | kotlinx-coroutines + Flow |
 | Serialization | kotlinx-serialization |
-| HTTP | Ktor 3.1.1 |
-| Markdown | CommonMark 0.24.0 + GFM |
 | Bridge | Node.js + `@anthropic-ai/claude-code` SDK |
-| Build | Gradle + IntelliJ Platform Plugin 2.10.2 |
+| Build | Gradle + IntelliJ Platform Plugin 2.11.0 |
 
 ---
 
@@ -248,5 +252,5 @@ MIT
 ---
 
 <p align="center">
-  <sub>Built with native Swing. Because your IDE deserves better than a webview.</sub>
+  <sub>Built with Compose/Jewel. Because your IDE deserves better than a webview.</sub>
 </p>

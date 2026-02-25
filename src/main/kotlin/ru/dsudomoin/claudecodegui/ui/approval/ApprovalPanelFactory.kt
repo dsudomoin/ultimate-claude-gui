@@ -1,9 +1,8 @@
 package ru.dsudomoin.claudecodegui.ui.approval
 
-import com.intellij.openapi.project.Project
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import ru.dsudomoin.claudecodegui.ui.chat.ToolUseBlock
+import ru.dsudomoin.claudecodegui.core.model.ToolSummaryExtractor
 
 /**
  * Factory that classifies a tool-approval request and creates the appropriate inline panel.
@@ -21,7 +20,7 @@ object ApprovalPanelFactory {
                 val desc = getStr(input, "description")
                 ToolApprovalRequest(
                     type = ToolApprovalType.BASH,
-                    title = ToolUseBlock.getToolDisplayName(toolName),
+                    title = ToolSummaryExtractor.getToolDisplayName(toolName),
                     details = command,
                     payload = BashPayload(command, desc)
                 )
@@ -33,7 +32,7 @@ object ApprovalPanelFactory {
                 val replaceAll = getStr(input, "replace_all")?.toBoolean() ?: false
                 ToolApprovalRequest(
                     type = ToolApprovalType.EDIT,
-                    title = ToolUseBlock.getToolDisplayName(toolName),
+                    title = ToolSummaryExtractor.getToolDisplayName(toolName),
                     details = filePath.substringAfterLast('/'),
                     payload = EditPayload(filePath, oldStr, newStr, replaceAll)
                 )
@@ -43,7 +42,7 @@ object ApprovalPanelFactory {
                 val content = getStr(input, "content") ?: ""
                 ToolApprovalRequest(
                     type = ToolApprovalType.WRITE,
-                    title = ToolUseBlock.getToolDisplayName(toolName),
+                    title = ToolSummaryExtractor.getToolDisplayName(toolName),
                     details = filePath.substringAfterLast('/'),
                     payload = WritePayload(filePath, content)
                 )
@@ -51,26 +50,11 @@ object ApprovalPanelFactory {
             else -> {
                 ToolApprovalRequest(
                     type = ToolApprovalType.GENERIC,
-                    title = ToolUseBlock.getToolDisplayName(toolName),
+                    title = ToolSummaryExtractor.getToolDisplayName(toolName),
                     details = formatGenericInput(input)
                 )
             }
         }
-    }
-
-    /**
-     * Create the correct [InlineApprovalPanel] for the given [request].
-     */
-    fun create(
-        project: Project,
-        request: ToolApprovalRequest,
-        onApprove: (autoApproveSession: Boolean) -> Unit,
-        onReject: () -> Unit
-    ): InlineApprovalPanel = when (request.type) {
-        ToolApprovalType.BASH -> BashApprovalPanel(project, request, onApprove, onReject)
-        ToolApprovalType.EDIT -> EditApprovalPanel(project, request, onApprove, onReject)
-        ToolApprovalType.WRITE -> WriteApprovalPanel(project, request, onApprove, onReject)
-        ToolApprovalType.GENERIC -> GenericApprovalPanel(project, request, onApprove, onReject)
     }
 
     // ── constants ──────────────────────────────────────────

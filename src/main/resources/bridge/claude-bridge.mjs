@@ -12,7 +12,7 @@
  *   Plugin writes: {"allow":true} or {"allow":false,"message":"reason"} + newline
  */
 
-import { query } from '@anthropic-ai/claude-code';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import { createInterface } from 'readline';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -209,6 +209,9 @@ async function main() {
     process.exit(1);
   }
 
+  // Collect SDK internal stderr for better error diagnostics
+  const sdkStderrLines = [];
+
   try {
     emit('STREAM_START', '');
 
@@ -217,7 +220,6 @@ async function main() {
     for (const key of Object.keys(sendEnv)) {
       if (key.startsWith('CLAUDE') || key === 'CLAUDECODE') delete sendEnv[key];
     }
-
     const options = {
       cwd,
       executable: process.execPath,
@@ -225,6 +227,13 @@ async function main() {
       maxTurns,
       permissionMode,
       includePartialMessages: streaming !== false,
+      stderr: (msg) => {
+        const line = msg.trimEnd();
+        if (line) {
+          sdkStderrLines.push(line);
+          process.stderr.write(`[SDK] ${line}\n`);
+        }
+      },
     };
 
     // SDK uses its built-in cli.js — avoids Windows .cmd spawn issues
@@ -234,6 +243,7 @@ async function main() {
 
     // Permission callback — emit request to plugin, wait for response on stdin
     options.canUseTool = async (toolName, toolInput, callbackOptions) => {
+      process.stderr.write(`[BRIDGE_CAN_USE_TOOL] toolName=${toolName} inputKeys=${Object.keys(toolInput || {}).join(',')}\n`);
       emit('PERMISSION_REQUEST', { toolName, input: toolInput });
 
       // Wait for the plugin to respond via stdin
@@ -319,10 +329,23 @@ async function main() {
           const content = msg.message?.content;
           if (!content) break;
 
-          // Debug: log all content block types
+          // Debug: log all content block types and preview text
           if (Array.isArray(content)) {
             const types = content.map(b => `${b.type}${b.name ? ':' + b.name : ''}`).join(', ');
             process.stderr.write(`[BRIDGE_AST] blocks: [${types}]\n`);
+            // Log text preview to diagnose short/error responses
+            for (const b of content) {
+              if (b.type === 'text' && b.text) {
+                const preview = b.text.length > 200 ? b.text.substring(0, 200) + '...' : b.text;
+                process.stderr.write(`[BRIDGE_AST_TEXT] len=${b.text.length} "${preview}"\n`);
+              }
+            }
+          }
+          // Log stop_reason and model from message
+          const stopReason = msg.message?.stop_reason;
+          const msgModel = msg.message?.model;
+          if (stopReason || msgModel) {
+            process.stderr.write(`[BRIDGE_AST_META] stop_reason=${stopReason} model=${msgModel}\n`);
           }
 
           if (Array.isArray(content)) {
@@ -344,16 +367,13 @@ async function main() {
                 }
               } else if (block.type === 'thinking') {
                 const thinkingText = block.thinking ?? '';
-                if (hasStreamEvents) {
-                  if (thinkingText.length > lastThinkingContent.length) {
-                    lastThinkingContent = thinkingText;
-                  }
-                } else {
-                  if (thinkingText.length > lastThinkingContent.length) {
-                    const delta = thinkingText.substring(lastThinkingContent.length);
-                    emitDelta('THINKING_DELTA', delta);
-                    lastThinkingContent = thinkingText;
-                  }
+                // Always emit delta if we have new thinking content,
+                // even when hasStreamEvents — SDK may not send thinking_delta
+                // stream events but still include thinking in assistant messages
+                if (thinkingText.length > lastThinkingContent.length) {
+                  const delta = thinkingText.substring(lastThinkingContent.length);
+                  emitDelta('THINKING_DELTA', delta);
+                  lastThinkingContent = thinkingText;
                 }
               } else if (block.type === 'tool_use') {
                 emit('TOOL_USE', {
@@ -400,6 +420,7 @@ async function main() {
         }
 
         case 'result': {
+          process.stderr.write(`[BRIDGE_RESULT] is_error=${msg.is_error} session_id=${msg.session_id} error=${msg.error}\n`);
           if (msg.is_error) {
             emit('ERROR', msg.error ?? 'Unknown SDK error');
           }
@@ -442,7 +463,18 @@ async function main() {
 
     emit('STREAM_END', '');
   } catch (e) {
-    emit('ERROR', `SDK error: ${e.message ?? e}`);
+    let errMsg = `SDK error: ${e.message ?? e}`;
+    // Extract meaningful error lines from SDK stderr (single-line safe for protocol)
+    const meaningful = sdkStderrLines.filter(l =>
+      /TypeError:|SyntaxError:|ReferenceError:|RangeError:|Cannot find|ENOENT|EACCES|EPERM|ERR_/i.test(l)
+    );
+    if (meaningful.length > 0) {
+      errMsg += ' | ' + meaningful.slice(-3).map(l => l.replace(/\n/g, ' ')).join(' | ');
+    }
+    // Write to stderr first (always read by plugin) so error isn't lost
+    process.stderr.write(`[BRIDGE_ERROR] ${errMsg}\n`);
+    if (e.stack) process.stderr.write(`[BRIDGE_STACK] ${e.stack.replace(/\n/g, ' | ')}\n`);
+    emit('ERROR', errMsg);
     process.exit(1);
   }
 }
@@ -450,11 +482,14 @@ async function main() {
 // ── process-level error handlers ─────────────────────────────────────────────
 
 process.on('uncaughtException', (err) => {
+  process.stderr.write(`[BRIDGE_UNCAUGHT] ${err.message}\n`);
+  if (err.stack) process.stderr.write(`[BRIDGE_STACK] ${err.stack.replace(/\n/g, ' | ')}\n`);
   emit('ERROR', `Uncaught: ${err.message}`);
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason) => {
+  process.stderr.write(`[BRIDGE_UNHANDLED] ${reason}\n`);
   emit('ERROR', `Unhandled rejection: ${reason}`);
   process.exit(1);
 });
