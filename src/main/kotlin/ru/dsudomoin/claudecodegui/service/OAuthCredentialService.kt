@@ -3,17 +3,17 @@ package ru.dsudomoin.claudecodegui.service
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
-import io.ktor.client.*
-import io.ktor.client.engine.cio.*
-import io.ktor.client.request.*
-import io.ktor.client.request.forms.*
-import io.ktor.client.statement.*
-import io.ktor.http.*
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.net.URI
+import java.net.URLEncoder
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
 import java.nio.file.Paths
+import java.time.Duration
 
 /**
  * Reads and manages OAuth credentials from Claude Code CLI session.
@@ -34,9 +34,9 @@ class OAuthCredentialService {
         isLenient = true
     }
 
-    private val httpClient = HttpClient(CIO) {
-        engine { requestTimeout = 15_000 }
-    }
+    private val httpClient = HttpClient.newBuilder()
+        .connectTimeout(Duration.ofSeconds(15))
+        .build()
 
     @Volatile
     private var cachedCredentials: OAuthCredentials? = null
@@ -184,21 +184,29 @@ class OAuthCredentialService {
     // --- Token Refresh ---
 
     private suspend fun refreshAccessToken(refreshToken: String): TokenResponse? {
-        val response = httpClient.submitForm(
-            url = TOKEN_URL,
-            formParameters = parameters {
-                append("grant_type", "refresh_token")
-                append("refresh_token", refreshToken)
-                append("client_id", OAUTH_CLIENT_ID)
-            }
-        )
+        val formBody = listOf(
+            "grant_type" to "refresh_token",
+            "refresh_token" to refreshToken,
+            "client_id" to OAUTH_CLIENT_ID
+        ).joinToString("&") { (k, v) ->
+            "${URLEncoder.encode(k, Charsets.UTF_8)}=${URLEncoder.encode(v, Charsets.UTF_8)}"
+        }
 
-        if (response.status != HttpStatusCode.OK) {
-            log.warn("Token refresh failed: ${response.status} — ${response.bodyAsText()}")
+        val request = HttpRequest.newBuilder()
+            .uri(URI.create(TOKEN_URL))
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .timeout(Duration.ofSeconds(15))
+            .POST(HttpRequest.BodyPublishers.ofString(formBody))
+            .build()
+
+        val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+
+        if (response.statusCode() != 200) {
+            log.warn("Token refresh failed: ${response.statusCode()} — ${response.body()}")
             return null
         }
 
-        return json.decodeFromString<TokenResponse>(response.bodyAsText())
+        return json.decodeFromString<TokenResponse>(response.body())
     }
 
     // --- Credential Saving ---

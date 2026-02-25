@@ -165,16 +165,19 @@ class ClaudeProvider : AiProvider {
                 writer.newLine()
                 writer.flush()
 
-                // Read stderr concurrently (bridge debug output)
+                // Read stderr concurrently — collect into buffer for error reporting
+                val stderrLines = java.util.concurrent.CopyOnWriteArrayList<String>()
                 val stderrThread = Thread({
                     try {
                         process.errorStream.bufferedReader().forEachLine { stderrLine ->
                             log.info("Bridge: $stderrLine")
+                            stderrLines.add(stderrLine)
                         }
                     } catch (_: Exception) { }
                 }, "bridge-stderr-reader").apply { isDaemon = true; start() }
 
                 // Read tagged lines from stdout
+                var receivedError = false
                 process.inputStream.bufferedReader().use { reader ->
                     var line: String?
                     while (reader.readLine().also { line = it } != null) {
@@ -192,6 +195,7 @@ class ClaudeProvider : AiProvider {
                             }
 
                             is ParsedEvent.Stream -> {
+                                if (parsed.event is StreamEvent.Error) receivedError = true
                                 send(parsed.event)
                             }
                         }
@@ -209,6 +213,11 @@ class ClaudeProvider : AiProvider {
                 val exitCode = process.awaitExit()
                 if (exitCode != 0) {
                     log.warn("Bridge exited with code $exitCode")
+                    // Surface stderr to the user if no [ERROR] tag was already sent
+                    if (!receivedError && stderrLines.isNotEmpty()) {
+                        val stderrText = stderrLines.takeLast(10).joinToString("\n")
+                        send(StreamEvent.Error("Bridge exited with code $exitCode:\n$stderrText"))
+                    }
                 }
 
                 currentProcess = null

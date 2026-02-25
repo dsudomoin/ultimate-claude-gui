@@ -58,6 +58,13 @@ object NodeDetector {
                 // homebrew (Apple Silicon + Intel)
                 "/opt/homebrew/bin/node",
                 "/usr/local/bin/node",
+                // homebrew keg-only (node@22, node@20, etc.)
+                "/opt/homebrew/opt/node@24/bin/node",
+                "/opt/homebrew/opt/node@22/bin/node",
+                "/opt/homebrew/opt/node@20/bin/node",
+                "/usr/local/opt/node@24/bin/node",
+                "/usr/local/opt/node@22/bin/node",
+                "/usr/local/opt/node@20/bin/node",
                 // nvm
                 "$home/.nvm/current/bin/node",
                 // fnm
@@ -144,6 +151,126 @@ object NodeDetector {
 
         // 3. which / where fallback
         return findViaWhich("claude")
+    }
+
+    /**
+     * Runs `node --version` and returns the version string (e.g. "v22.12.0"), or null on failure.
+     */
+    fun detectVersion(nodePath: String): String? {
+        return try {
+            val process = ProcessBuilder(nodePath, "--version")
+                .redirectErrorStream(true)
+                .start()
+            val output = process.inputStream.bufferedReader().readText().trim()
+            val exitCode = process.waitFor()
+            if (exitCode == 0 && output.startsWith("v")) output else null
+        } catch (e: Exception) {
+            log.warn("Failed to detect Node version at $nodePath: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Checks if the Node.js version is compatible with Claude Code SDK.
+     * Requires major >= 18 and even (LTS releases are even-numbered).
+     */
+    fun isCompatibleVersion(version: String): Boolean {
+        val major = version.removePrefix("v").split(".").firstOrNull()?.toIntOrNull() ?: return false
+        return major >= 18 && major % 2 == 0
+    }
+
+    /**
+     * Scans nvm/fnm version directories for a compatible LTS Node.js.
+     * Returns the path to the `node` binary, or null if none found.
+     */
+    fun findCompatibleLtsNode(): String? {
+        val home = System.getProperty("user.home")
+
+        val versionDirs = mutableListOf<File>()
+
+        if (isWindows) {
+            // nvm4w stores versions in %APPDATA%\nvm\
+            val appData = System.getenv("APPDATA") ?: "$home\\AppData\\Roaming"
+            val nvmDir = File("$appData\\nvm")
+            if (nvmDir.isDirectory) {
+                nvmDir.listFiles()?.filter { it.isDirectory && it.name.startsWith("v") }?.let {
+                    versionDirs.addAll(it)
+                }
+            }
+        } else {
+            // nvm: ~/.nvm/versions/node/
+            val nvmVersionsDir = File("$home/.nvm/versions/node")
+            if (nvmVersionsDir.isDirectory) {
+                nvmVersionsDir.listFiles()?.filter { it.isDirectory }?.let {
+                    versionDirs.addAll(it)
+                }
+            }
+            // fnm: ~/.local/share/fnm/node-versions/
+            val fnmVersionsDir = File("$home/.local/share/fnm/node-versions")
+            if (fnmVersionsDir.isDirectory) {
+                fnmVersionsDir.listFiles()?.filter { it.isDirectory }?.let {
+                    versionDirs.addAll(it)
+                }
+            }
+        }
+
+        // Sort descending, pick first compatible
+        val fromManagers = versionDirs
+            .sortedByDescending { it.name }
+            .firstNotNullOfOrNull { dir ->
+                val version = dir.name.let { if (it.startsWith("v")) it else "v$it" }
+                if (!isCompatibleVersion(version)) return@firstNotNullOfOrNull null
+                val nodeBin = if (isWindows) File(dir, "node.exe") else File(dir, "bin/node")
+                if (fileExists(nodeBin.absolutePath)) nodeBin.absolutePath else null
+            }
+        if (fromManagers != null) return fromManagers
+
+        // Homebrew keg-only: /opt/homebrew/opt/node@XX/bin/node or /usr/local/opt/node@XX/bin/node
+        if (!isWindows) {
+            val brewPrefixes = listOf("/opt/homebrew/opt", "/usr/local/opt")
+            val ltsVersions = listOf(24, 22, 20, 18) // prefer newest
+            for (ver in ltsVersions) {
+                for (prefix in brewPrefixes) {
+                    val nodeBin = File("$prefix/node@$ver/bin/node")
+                    if (nodeBin.canExecute()) {
+                        log.info("Compatible Node found via Homebrew keg: ${nodeBin.absolutePath}")
+                        return nodeBin.absolutePath
+                    }
+                }
+            }
+        }
+
+        return null
+    }
+
+    /**
+     * Checks if nvm (Node Version Manager) is available on the system.
+     */
+    fun isNvmAvailable(): Boolean {
+        val home = System.getProperty("user.home")
+        return if (isWindows) {
+            val appData = System.getenv("APPDATA") ?: "$home\\AppData\\Roaming"
+            File("$appData\\nvm\\nvm.exe").exists()
+        } else {
+            File("$home/.nvm/nvm.sh").exists()
+        }
+    }
+
+    /**
+     * Checks if fnm (Fast Node Manager) is available on the system.
+     */
+    fun isFnmAvailable(): Boolean {
+        return findViaWhich("fnm") != null
+    }
+
+    /**
+     * Checks if Homebrew is available on the system (macOS/Linux).
+     */
+    fun isBrewAvailable(): Boolean {
+        if (isWindows) return false
+        return File("/opt/homebrew/bin/brew").canExecute() ||
+               File("/usr/local/bin/brew").canExecute() ||
+               findViaWhich("brew") != null
     }
 
     /**

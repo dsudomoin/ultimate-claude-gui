@@ -8,6 +8,7 @@ import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
 import ru.dsudomoin.claudecodegui.UcuBundle
+import ru.dsudomoin.claudecodegui.bridge.BridgeManager
 import ru.dsudomoin.claudecodegui.bridge.NodeDetector
 import ru.dsudomoin.claudecodegui.service.LanguageChangeListener
 import ru.dsudomoin.claudecodegui.service.OAuthCredentialService
@@ -85,9 +86,13 @@ class ClaudeSettingsConfigurable : Configurable {
         // Detection info
         val detectedNode = NodeDetector.detect() ?: "not found"
         val detectedClaude = NodeDetector.detectClaude() ?: "not found"
+        val sdkVersion = BridgeManager.detectSdkVersion() ?: UcuBundle.message("settings.sdkNotInstalled")
 
         panel = FormBuilder.createFormBuilder()
             .addComponent(loginStatus)
+            .addLabeledComponent(UcuBundle.message("settings.sdkVersion"), JBLabel(sdkVersion).apply {
+                foreground = JBColor.GRAY
+            })
             .addSeparator()
             .addLabeledComponent(UcuBundle.message("settings.language") + ":", languageCombo!!)
             .addSeparator()
