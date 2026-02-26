@@ -16,9 +16,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -37,6 +39,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.jetbrains.jewel.ui.component.Text
+import ru.dsudomoin.claudecodegui.ui.compose.common.ComposeMarkdownContent
 import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
 
 /**
@@ -341,6 +344,18 @@ private fun GroupItemRow(
                                 .horizontalScroll(plainScrollState)
                                 .padding(horizontal = 12.dp, vertical = 8.dp),
                         )
+                    }
+                    is ExpandableContent.Markdown -> {
+                        val mdScrollState = rememberScrollState()
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 400.dp)
+                                .verticalScroll(mdScrollState)
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                        ) {
+                            ComposeMarkdownContent(markdown = content.text)
+                        }
                     }
                     null -> {}
                 }

@@ -12,6 +12,9 @@ import ru.dsudomoin.claudecodegui.ui.compose.input.MentionSuggestionData
 import ru.dsudomoin.claudecodegui.ui.status.FileChangeSummary
 import ru.dsudomoin.claudecodegui.ui.status.SubagentInfo
 import ru.dsudomoin.claudecodegui.ui.status.TodoItem
+import com.intellij.openapi.diagnostic.Logger
+import java.util.concurrent.CopyOnWriteArrayList
+import javax.swing.SwingUtilities
 
 /**
  * Observable state holder for the chat UI.
@@ -25,12 +28,21 @@ import ru.dsudomoin.claudecodegui.ui.status.TodoItem
  * [addListener] and copies values into local `mutableStateOf`.
  */
 class ChatViewModel {
+    private val log = Logger.getInstance(ChatViewModel::class.java)
 
-    private val listeners = mutableListOf<() -> Unit>()
+    private val listeners = CopyOnWriteArrayList<() -> Unit>()
 
     fun addListener(listener: () -> Unit) { listeners.add(listener) }
     fun removeListener(listener: () -> Unit) { listeners.remove(listener) }
-    private fun notifyListeners() { listeners.toList().forEach { it() } }
+
+    /** Always notify on EDT — listeners update Compose state which requires EDT. */
+    private fun notifyListeners() {
+        if (SwingUtilities.isEventDispatchThread()) {
+            listeners.forEach { it() }
+        } else {
+            SwingUtilities.invokeLater { listeners.forEach { it() } }
+        }
+    }
 
     // ── Setup State ─────────────────────────────────────────────────────────
 
@@ -39,6 +51,19 @@ class ChatViewModel {
     var setupInstalling: Boolean = false
         set(value) { field = value; notifyListeners() }
     var setupError: String? = null
+        set(value) { field = value; notifyListeners() }
+
+    // ── SDK Update State ──────────────────────────────────────────────────
+
+    var sdkCurrentVersion: String? = null
+        set(value) { field = value; notifyListeners() }
+    var sdkLatestVersion: String? = null
+        set(value) { field = value; notifyListeners() }
+    var sdkUpdateAvailable: Boolean = false
+        set(value) { field = value; notifyListeners() }
+    var sdkUpdating: Boolean = false
+        set(value) { field = value; notifyListeners() }
+    var sdkUpdateError: String? = null
         set(value) { field = value; notifyListeners() }
 
     // ── Messages ─────────────────────────────────────────────────────────────
@@ -115,7 +140,10 @@ class ChatViewModel {
     var planPanelVisible: Boolean = false
         set(value) { field = value; notifyListeners() }
     var planMarkdown: String = ""
-        set(value) { field = value; notifyListeners() }
+        set(value) {
+            log.info("planMarkdown SET: length=${value.length}, blank=${value.isBlank()}, preview='${value.take(200)}'")
+            field = value; notifyListeners()
+        }
 
     // ── Prompt Enhancer State ───────────────────────────────────────────────
 
@@ -143,6 +171,37 @@ class ChatViewModel {
 
     var historySessions: List<ru.dsudomoin.claudecodegui.core.session.SessionInfo> = emptyList()
         set(value) { field = value; notifyListeners() }
+
+    // ── Session Title (feature 58) ──────────────────────────────────────────
+
+    var sessionTitle: String = ""
+        set(value) { field = value; notifyListeners() }
+    var sessionTitleVisible: Boolean = false
+        set(value) { field = value; notifyListeners() }
+
+    // ── Status Panel Visibility (feature 60) ────────────────────────────────
+
+    var statusPanelVisible: Boolean = true
+        set(value) { field = value; notifyListeners() }
+
+    // ── Settings (streaming / thinking toggles) ──────────────────────────────
+
+    var streamingEnabled: Boolean = true
+        set(value) { field = value; notifyListeners() }
+    var thinkingEnabled: Boolean = true
+        set(value) { field = value; notifyListeners() }
+
+    // ── Input History (feature 59) ──────────────────────────────────────────
+
+    /** History of sent messages (most recent last). Not observed — read only during key events. */
+    val inputHistory: MutableList<String> = mutableListOf()
+
+    fun addToHistory(text: String) {
+        if (text.isNotBlank()) {
+            inputHistory.add(text)
+            if (inputHistory.size > 100) inputHistory.removeAt(0)
+        }
+    }
 
     // ── Scroll ───────────────────────────────────────────────────────────────
 

@@ -53,8 +53,9 @@ class ProjectFileIndexService(private val project: Project) {
 
         val entries = mutableListOf<FileEntry>()
 
-        com.intellij.openapi.application.readAction {
-            // 1. Project files — recursive walk from project base dir
+        // 1. Project files — separate readAction to release lock between operations
+        val projectEntries = com.intellij.openapi.application.readAction {
+            val result = mutableListOf<FileEntry>()
             fun walk(dir: VirtualFile) {
                 for (child in dir.children) {
                     if (child.isDirectory) {
@@ -63,13 +64,18 @@ class ProjectFileIndexService(private val project: Project) {
                         }
                     } else {
                         val rel = VfsUtilCore.getRelativePath(child, baseDir) ?: child.name
-                        entries.add(FileEntry(rel, child.name, child.path, child))
+                        result.add(FileEntry(rel, child.name, child.path, child))
                     }
                 }
             }
             walk(baseDir)
+            result
+        }
+        entries.addAll(projectEntries)
 
-            // 2. Library source files (JDK, Maven/Gradle dependencies with sources)
+        // 2. Library source files — separate readAction to give write actions a chance
+        val libraryEntries = com.intellij.openapi.application.readAction {
+            val result = mutableListOf<FileEntry>()
             val seen = mutableSetOf<String>()
             val modules = ProjectRootManager.getInstance(project).contentRoots
                 .mapNotNull { com.intellij.openapi.module.ModuleUtilCore.findModuleForFile(it, project) }
@@ -78,13 +84,16 @@ class ProjectFileIndexService(private val project: Project) {
                 for (orderEntry in ModuleRootManager.getInstance(module).orderEntries) {
                     if (orderEntry is LibraryOrderEntry) {
                         val libName = orderEntry.libraryName ?: orderEntry.presentableName
-                        for (sourceRoot in orderEntry.getFiles(OrderRootType.SOURCES)) {
-                            indexLibraryRoot(sourceRoot, sourceRoot, entries, seen, libName)
+                        val library = orderEntry.library ?: continue
+                        for (sourceRoot in library.getFiles(OrderRootType.SOURCES)) {
+                            indexLibraryRoot(sourceRoot, sourceRoot, result, seen, libName)
                         }
                     }
                 }
             }
+            result
         }
+        entries.addAll(libraryEntries)
 
         fileEntries.clear()
         fileEntries.addAll(entries)

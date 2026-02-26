@@ -106,6 +106,7 @@ object ToolSummaryExtractor {
     fun hasUsefulResultContent(toolName: String): Boolean {
         val lower = toolName.lowercase()
         return lower in BASH_TOOLS || lower in setOf(
+            "read", "read_file",
             "grep", "search", "glob", "find", "list", "listfiles",
             "task", "taskoutput", "webfetch", "websearch",
         )

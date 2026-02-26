@@ -17,12 +17,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -40,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.jetbrains.jewel.ui.component.Text
+import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
 import ru.dsudomoin.claudecodegui.ui.status.FileChangeSummary
 import ru.dsudomoin.claudecodegui.ui.status.SubagentInfo
@@ -48,10 +47,15 @@ import ru.dsudomoin.claudecodegui.ui.status.TodoItem
 import ru.dsudomoin.claudecodegui.ui.status.TodoStatus
 
 /**
- * Compose equivalent of [ru.dsudomoin.claudecodegui.ui.status.StatusPanel].
+ * Always-visible status panel: horizontal tab bar with three independently expandable tabs.
  *
- * Collapsible panel with three tabs: Todos, File Changes, Subagents.
- * State is passed in from the parent (ChatPanel/ViewModel).
+ * Layout:
+ * ```
+ * ┌───────────────┬───────────────┬───────────────┐
+ * │ ☑ Tasks 3/6   │ ⚙ Subagent 2/3│ ✎ Edits +5 -2│
+ * └───────────────┴───────────────┴───────────────┘
+ *   ▼ expanded content for whichever tab(s) are open
+ * ```
  */
 @Composable
 fun ComposeStatusPanel(
@@ -65,137 +69,133 @@ fun ComposeStatusPanel(
     onKeepAll: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val hasContent = todos.isNotEmpty() || fileChanges.isNotEmpty() || agents.isNotEmpty()
-    if (!hasContent) return
-
-    var selectedTab by remember { mutableIntStateOf(0) }
-    var expanded by remember { mutableStateOf(true) }
+    val colors = LocalClaudeColors.current
+    // Only one tab can be expanded at a time (null = all collapsed)
+    var expandedTab by remember { mutableStateOf<StatusTabId?>(null) }
 
     Column(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 4.dp),
     ) {
-        // Collapsed strip (visible when collapsed)
-        AnimatedVisibility(visible = !expanded) {
-            CollapsedStrip(
-                todos = todos,
-                fileChanges = fileChanges,
-                agents = agents,
-                onExpand = { expanded = true },
-            )
+        // ── Horizontal tab bar ───────────────────────────────────────────────
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(34.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(colors.surfacePrimary)
+                .drawBehind {
+                    drawRoundRect(
+                        color = colors.borderNormal,
+                        cornerRadius = CornerRadius(8.dp.toPx()),
+                        style = Stroke(width = 1.dp.toPx()),
+                    )
+                },
+        ) {
+            StatusTab(
+                label = "Tasks",
+                icon = "\u2611",
+                isSelected = expandedTab == StatusTabId.TODOS,
+                onClick = { expandedTab = if (expandedTab == StatusTabId.TODOS) null else StatusTabId.TODOS },
+                modifier = Modifier.weight(1f),
+            ) {
+                TodosTabStats(todos)
+            }
+
+            TabDivider()
+
+            StatusTab(
+                label = "Subagent",
+                icon = "\u2699",
+                isSelected = expandedTab == StatusTabId.AGENTS,
+                onClick = { expandedTab = if (expandedTab == StatusTabId.AGENTS) null else StatusTabId.AGENTS },
+                modifier = Modifier.weight(1f),
+            ) {
+                AgentsTabStats(agents)
+            }
+
+            TabDivider()
+
+            StatusTab(
+                label = "Edits",
+                icon = "\u270E",
+                isSelected = expandedTab == StatusTabId.FILES,
+                onClick = { expandedTab = if (expandedTab == StatusTabId.FILES) null else StatusTabId.FILES },
+                modifier = Modifier.weight(1f),
+            ) {
+                FilesTabStats(fileChanges)
+            }
         }
 
-        // Expanded panel (tab bar + content)
+        // ── Expanded content areas ───────────────────────────────────────────
         AnimatedVisibility(
-            visible = expanded,
+            visible = expandedTab == StatusTabId.TODOS,
             enter = expandVertically(),
             exit = shrinkVertically(),
         ) {
-            Column {
-                // Tab bar
-                StatusTabBar(
-                    selectedTab = selectedTab,
-                    onTabSelected = { selectedTab = it },
-                    onCollapse = { expanded = false },
-                    todos = todos,
-                    fileChanges = fileChanges,
-                    agents = agents,
-                )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 180.dp)
+                    .padding(top = 4.dp),
+            ) {
+                if (todos.isNotEmpty()) {
+                    ComposeTodoTab(todos = todos)
+                } else {
+                    EmptyMessage(UcuBundle.message("status.noTodos"))
+                }
+            }
+        }
 
-                // Content area (max height 180dp)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 180.dp),
-                ) {
-                    when (selectedTab) {
-                        0 -> ComposeTodoTab(todos = todos)
-                        1 -> ComposeFilesTab(
-                            fileChanges = fileChanges,
-                            onFileClick = onFileClick,
-                            onShowDiff = onShowDiff,
-                            onUndoFile = onUndoFile,
-                            onDiscardAll = onDiscardAll,
-                            onKeepAll = onKeepAll,
-                        )
-                        2 -> ComposeAgentsTab(agents = agents)
-                    }
+        AnimatedVisibility(
+            visible = expandedTab == StatusTabId.AGENTS,
+            enter = expandVertically(),
+            exit = shrinkVertically(),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 180.dp)
+                    .padding(top = 4.dp),
+            ) {
+                if (agents.isNotEmpty()) {
+                    ComposeAgentsTab(agents = agents)
+                } else {
+                    EmptyMessage(UcuBundle.message("status.noAgents"))
+                }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = expandedTab == StatusTabId.FILES,
+            enter = expandVertically(),
+            exit = shrinkVertically(),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 180.dp)
+                    .padding(top = 4.dp),
+            ) {
+                if (fileChanges.isNotEmpty()) {
+                    ComposeFilesTab(
+                        fileChanges = fileChanges,
+                        onFileClick = onFileClick,
+                        onShowDiff = onShowDiff,
+                        onUndoFile = onUndoFile,
+                        onDiscardAll = onDiscardAll,
+                        onKeepAll = onKeepAll,
+                    )
+                } else {
+                    EmptyMessage(UcuBundle.message("status.noFiles"))
                 }
             }
         }
     }
 }
 
-// ── Tab Bar ──────────────────────────────────────────────────────────────────
-
-@Composable
-private fun StatusTabBar(
-    selectedTab: Int,
-    onTabSelected: (Int) -> Unit,
-    onCollapse: () -> Unit,
-    todos: List<TodoItem>,
-    fileChanges: List<FileChangeSummary>,
-    agents: List<SubagentInfo>,
-    modifier: Modifier = Modifier,
-) {
-    val colors = LocalClaudeColors.current
-
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(34.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(colors.surfacePrimary)
-            .drawBehind {
-                drawRoundRect(
-                    color = colors.borderNormal,
-                    cornerRadius = CornerRadius(8.dp.toPx()),
-                    style = Stroke(width = 1.dp.toPx()),
-                )
-            },
-    ) {
-        // Tabs take equal weight
-        StatusTab(
-            label = "Todos",
-            icon = "\u2611",
-            isSelected = selectedTab == 0,
-            onClick = { onTabSelected(0) },
-            modifier = Modifier.weight(1f),
-        ) {
-            TodosTabStats(todos)
-        }
-
-        // Divider
-        TabDivider()
-
-        StatusTab(
-            label = "Files",
-            icon = "\u270E",
-            isSelected = selectedTab == 1,
-            onClick = { onTabSelected(1) },
-            modifier = Modifier.weight(1f),
-        ) {
-            FilesTabStats(fileChanges)
-        }
-
-        // Divider
-        TabDivider()
-
-        StatusTab(
-            label = "Agents",
-            icon = "\u2699",
-            isSelected = selectedTab == 2,
-            onClick = { onTabSelected(2) },
-            modifier = Modifier.weight(1f),
-        ) {
-            AgentsTabStats(agents)
-        }
-
-        // Collapse button
-        CollapseButton(onClick = onCollapse)
-    }
-}
+// ── Tab ─────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun StatusTab(
@@ -219,6 +219,7 @@ private fun StatusTab(
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
         modifier = modifier
             .height(34.dp)
             .background(bgColor)
@@ -251,38 +252,12 @@ private fun TabDivider() {
     Box(
         modifier = Modifier
             .width(1.dp)
-            .height(20.dp)
-            .padding(vertical = 3.dp)
+            .height(34.dp)
             .background(colors.borderNormal),
     )
 }
 
-@Composable
-private fun CollapseButton(onClick: () -> Unit) {
-    val colors = LocalClaudeColors.current
-    val interactionSource = remember { MutableInteractionSource() }
-    val isHovered by interactionSource.collectIsHoveredAsState()
-
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier
-            .width(28.dp)
-            .height(34.dp)
-            .then(
-                if (isHovered) Modifier.background(colors.surfaceHover) else Modifier
-            )
-            .hoverable(interactionSource)
-            .clickable(onClick = onClick)
-            .pointerHoverIcon(PointerIcon.Hand),
-    ) {
-        Text(
-            text = "\u25BC",
-            style = TextStyle(fontSize = 10.sp, color = colors.textSecondary),
-        )
-    }
-}
-
-// ── Tab Stats ────────────────────────────────────────────────────────────────
+// ── Tab Stats ───────────────────────────────────────────────────────────────
 
 @Composable
 private fun TodosTabStats(todos: List<TodoItem>) {
@@ -352,84 +327,22 @@ private fun AgentsTabStats(agents: List<SubagentInfo>) {
     }
 }
 
-// ── Collapsed Strip ──────────────────────────────────────────────────────────
+// ── Empty message ───────────────────────────────────────────────────────────
+
+private enum class StatusTabId { TODOS, AGENTS, FILES }
 
 @Composable
-private fun CollapsedStrip(
-    todos: List<TodoItem>,
-    fileChanges: List<FileChangeSummary>,
-    agents: List<SubagentInfo>,
-    onExpand: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
+private fun EmptyMessage(text: String) {
     val colors = LocalClaudeColors.current
-    val interactionSource = remember { MutableInteractionSource() }
-    val isHovered by interactionSource.collectIsHoveredAsState()
-
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
             .fillMaxWidth()
-            .height(24.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (isHovered) colors.surfaceHover else colors.surfacePrimary)
-            .drawBehind {
-                drawRoundRect(
-                    color = colors.borderNormal,
-                    cornerRadius = CornerRadius(8.dp.toPx()),
-                    style = Stroke(width = 1.dp.toPx()),
-                )
-            }
-            .hoverable(interactionSource)
-            .clickable(onClick = onExpand)
-            .pointerHoverIcon(PointerIcon.Hand)
-            .padding(horizontal = 8.dp),
+            .padding(vertical = 8.dp),
     ) {
-        // Expand arrow
         Text(
-            text = "\u25B6",
-            style = TextStyle(fontSize = 9.sp, color = colors.textSecondary),
+            text = text,
+            style = TextStyle(fontSize = 11.sp, color = colors.textSecondary),
         )
-        Spacer(Modifier.width(6.dp))
-
-        // Brief stats
-        val parts = buildList {
-            val todoDone = todos.count { it.status == TodoStatus.COMPLETED }
-            if (todos.isNotEmpty()) add("Todos $todoDone/${todos.size}")
-
-            val totalAdd = fileChanges.sumOf { it.additions }
-            val totalDel = fileChanges.sumOf { it.deletions }
-            if (totalAdd > 0 || totalDel > 0) {
-                add(buildString {
-                    append("Files")
-                    if (totalAdd > 0) append(" +$totalAdd")
-                    if (totalDel > 0) append(" -$totalDel")
-                })
-            }
-
-            val agentDone = agents.count { it.status != SubagentStatus.RUNNING }
-            if (agents.isNotEmpty()) add("Agents $agentDone/${agents.size}")
-        }
-
-        parts.forEachIndexed { index, part ->
-            if (index > 0) {
-                Text(
-                    text = " \u00B7 ",
-                    style = TextStyle(fontSize = 11.sp, color = colors.borderNormal),
-                )
-            }
-            Text(
-                text = part,
-                style = TextStyle(fontSize = 11.sp, color = colors.textSecondary),
-            )
-        }
-
-        // Spinner if anything active
-        val hasActive = todos.any { it.status == TodoStatus.IN_PROGRESS }
-                || agents.any { it.status == SubagentStatus.RUNNING }
-        if (hasActive) {
-            Spacer(Modifier.width(4.dp))
-            SpinnerIcon(color = colors.statusProgress, size = 10.dp)
-        }
     }
 }

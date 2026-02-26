@@ -8,10 +8,6 @@ import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.project.guessProjectDir
-import com.intellij.openapi.ui.popup.JBPopupFactory
-import com.intellij.openapi.ui.popup.PopupStep
-import com.intellij.openapi.ui.popup.util.BaseListPopupStep
-import com.intellij.ui.awt.RelativePoint
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.content.ContentFactory
@@ -37,6 +33,7 @@ import com.intellij.openapi.fileEditor.FileEditorManagerEvent
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -185,19 +182,39 @@ class ChatContainerPanel(
 ) : JPanel(BorderLayout()), Disposable {
 
     val controller = ChatController(project)
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    /** EDT dispatcher — avoids dependency on kotlinx-coroutines-swing (classloader conflicts). */
+    private val edtDispatcher = object : CoroutineDispatcher() {
+        override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+            javax.swing.SwingUtilities.invokeLater(block)
+        }
+    }
+    private val scope = CoroutineScope(SupervisorJob() + edtDispatcher)
     private var lastMentionResults: List<ProjectFileIndexService.FileEntry> = emptyList()
 
     private val callbacks = ChatCallbacks(
         onSendOrStop = {
-            if (controller.viewModel.isSending) controller.stopGeneration()
-            else controller.sendFromCompose()
+            val hasText = controller.viewModel.inputText.trim().isNotBlank()
+            if (hasText) {
+                // Send or queue — sendFromCompose → onSendMessage handles queueing
+                controller.sendFromCompose()
+            } else if (controller.viewModel.isSending) {
+                controller.stopGeneration()
+            }
         },
         onAttachClick = { showFileChooser() },
         onPasteImage = { handleClipboardPaste() },
-        onSettingsClick = { showStreamingSettingsPopup() },
-        onModelClick = { showModelSelectionPopup() },
-        onModeClick = { showPermissionModePopup() },
+        onStreamingToggle = {
+            val settings = SettingsService.getInstance()
+            settings.state.streamingEnabled = !settings.state.streamingEnabled
+            controller.viewModel.streamingEnabled = settings.state.streamingEnabled
+        },
+        onThinkingToggle = {
+            val settings = SettingsService.getInstance()
+            settings.state.thinkingEnabled = !settings.state.thinkingEnabled
+            controller.viewModel.thinkingEnabled = settings.state.thinkingEnabled
+        },
+        onModelSelect = { modelId -> selectModel(modelId) },
+        onModeSelect = { modeId -> selectMode(modeId) },
         onEnhanceClick = { launchEnhancer() },
         onFileContextClick = { path -> openFileInEditor(path) },
         onFileContextRemove = { controller.viewModel.fileContext = null },
@@ -262,6 +279,7 @@ class ChatContainerPanel(
         onQuestionSubmit = { answers -> controller.submitQuestion(answers) },
         onQuestionCancel = { controller.cancelQuestion() },
         onPlanApprove = { controller.approvePlan() },
+        onPlanApproveCompact = { controller.approvePlanAndCompact() },
         onPlanDeny = { controller.denyPlan() },
         onApprovalApprove = { controller.approvePermission() },
         onApprovalReject = { controller.rejectPermission() },
@@ -269,6 +287,7 @@ class ChatContainerPanel(
         onInstallNode = { controller.installNode() },
         onLogin = { controller.runLogin() },
         onDownloadNode = { controller.openNodeDownloadPage() },
+        onUpdateSdk = { controller.updateSdk() },
         onLoadSession = { sessionId -> loadHistorySession(sessionId) },
         onHistoryBack = { controller.viewModel.showingHistory = false },
         onHistoryRefresh = { refreshHistorySessions() },
@@ -406,85 +425,32 @@ class ChatContainerPanel(
         return false
     }
 
-    // ── Model selection popup ────────────────────────────────────────────────
+    // ── Model / Mode selection (Compose popups call these) ─────────────────
 
-    private data class PopupItem(val id: String, val name: String, val description: String, val isCurrent: Boolean)
-
-    private fun showModelSelectionPopup() {
+    private fun selectModel(modelId: String) {
         val settings = SettingsService.getInstance()
-        val currentModel = settings.state.claudeModel
-        val items = listOf(
-            PopupItem("claude-sonnet-4-6", "Sonnet 4.6", UcuBundle.message("model.sonnet.desc"), currentModel == "claude-sonnet-4-6"),
-            PopupItem("claude-opus-4-6", "Opus 4.6", UcuBundle.message("model.opus.desc"), currentModel == "claude-opus-4-6"),
-            PopupItem("claude-haiku-4-5-20251001", "Haiku 4.5", UcuBundle.message("model.haiku.desc"), currentModel == "claude-haiku-4-5-20251001"),
-        )
-        val step = object : BaseListPopupStep<PopupItem>(UcuBundle.message("settings.model"), items) {
-            override fun getTextFor(value: PopupItem): String {
-                val check = if (value.isCurrent) "\u2713 " else "   "
-                return "$check${value.name} — ${value.description}"
-            }
-            override fun onChosen(selectedValue: PopupItem, finalChoice: Boolean): PopupStep<*>? {
-                settings.state.claudeModel = selectedValue.id
-                controller.viewModel.selectedModelId = selectedValue.id
-                controller.viewModel.selectedModelName = selectedValue.name
-                return FINAL_CHOICE
-            }
+        settings.state.claudeModel = modelId
+        controller.viewModel.selectedModelId = modelId
+        controller.viewModel.selectedModelName = when {
+            modelId == "claude-opus-4-6-max" -> "Opus 4.6 (1M)"
+            modelId.contains("sonnet") -> "Sonnet 4.6"
+            modelId.contains("opus") -> "Opus 4.6"
+            modelId.contains("haiku") -> "Haiku 4.5"
+            else -> modelId
         }
-        step.defaultOptionIndex = items.indexOfFirst { it.isCurrent }.coerceAtLeast(0)
-        showPopupNearMouse(JBPopupFactory.getInstance().createListPopup(step))
     }
 
-    // ── Permission mode popup ────────────────────────────────────────────────
-
-    private fun showPermissionModePopup() {
+    private fun selectMode(modeId: String) {
         val settings = SettingsService.getInstance()
-        val currentMode = settings.state.permissionMode
-        val items = listOf(
-            PopupItem("default", UcuBundle.message("mode.default.name"), UcuBundle.message("mode.default.desc"), currentMode == "default"),
-            PopupItem("plan", UcuBundle.message("mode.plan.name"), UcuBundle.message("mode.plan.desc"), currentMode == "plan"),
-            PopupItem("bypassPermissions", UcuBundle.message("mode.auto.name"), UcuBundle.message("mode.auto.desc"), currentMode == "bypassPermissions"),
-        )
-        val step = object : BaseListPopupStep<PopupItem>(UcuBundle.message("settings.permissionMode"), items) {
-            override fun getTextFor(value: PopupItem): String {
-                val check = if (value.isCurrent) "\u2713 " else "   "
-                return "$check${value.name} — ${value.description}"
-            }
-            override fun onChosen(selectedValue: PopupItem, finalChoice: Boolean): PopupStep<*>? {
-                settings.state.permissionMode = selectedValue.id
-                controller.viewModel.selectedModeId = selectedValue.id
-                controller.viewModel.modeLabel = selectedValue.name
-                return FINAL_CHOICE
-            }
+        settings.state.permissionMode = modeId
+        controller.viewModel.selectedModeId = modeId
+        controller.viewModel.modeLabel = when (modeId) {
+            "default" -> UcuBundle.message("mode.default.name")
+            "plan" -> UcuBundle.message("mode.plan.name")
+            "autoEdit" -> UcuBundle.message("mode.agent.name")
+            "bypassPermissions" -> UcuBundle.message("mode.auto.name")
+            else -> modeId
         }
-        step.defaultOptionIndex = items.indexOfFirst { it.isCurrent }.coerceAtLeast(0)
-        showPopupNearMouse(JBPopupFactory.getInstance().createListPopup(step))
-    }
-
-    // ── Streaming / Thinking settings popup ──────────────────────────────────
-
-    private data class ToggleItem(val id: String, val name: String, val description: String, var isEnabled: Boolean)
-
-    private fun showStreamingSettingsPopup() {
-        val settings = SettingsService.getInstance()
-        val items = listOf(
-            ToggleItem("streaming", UcuBundle.message("settings.streaming"), UcuBundle.message("settings.streaming.desc"), settings.state.streamingEnabled),
-            ToggleItem("thinking", UcuBundle.message("settings.thinking"), UcuBundle.message("settings.thinking.desc"), settings.state.thinkingEnabled),
-        )
-        val step = object : BaseListPopupStep<ToggleItem>(UcuBundle.message("input.settings"), items) {
-            override fun getTextFor(value: ToggleItem): String {
-                val check = if (value.isEnabled) "\u2713 " else "   "
-                return "$check${value.name} — ${value.description}"
-            }
-            override fun onChosen(selectedValue: ToggleItem, finalChoice: Boolean): PopupStep<*>? {
-                selectedValue.isEnabled = !selectedValue.isEnabled
-                when (selectedValue.id) {
-                    "streaming" -> settings.state.streamingEnabled = selectedValue.isEnabled
-                    "thinking" -> settings.state.thinkingEnabled = selectedValue.isEnabled
-                }
-                return FINAL_CHOICE
-            }
-        }
-        showPopupNearMouse(JBPopupFactory.getInstance().createListPopup(step))
     }
 
     // ── File attachment chooser ─────────────────────────────────────────────
@@ -610,20 +576,12 @@ class ChatContainerPanel(
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    private fun showPopupNearMouse(popup: com.intellij.openapi.ui.popup.JBPopup) {
-        val mouseLocation = java.awt.MouseInfo.getPointerInfo()?.location
-        if (mouseLocation != null) {
-            popup.show(RelativePoint(mouseLocation))
-        } else {
-            popup.showInFocusCenter()
-        }
-    }
-
     private fun syncViewModelFromSettings() {
         val settings = SettingsService.getInstance()
         val modelId = settings.state.claudeModel
         controller.viewModel.selectedModelId = modelId
         controller.viewModel.selectedModelName = when {
+            modelId == "claude-opus-4-6-max" -> "Opus 4.6 (1M)"
             modelId.contains("sonnet") -> "Sonnet 4.6"
             modelId.contains("opus") -> "Opus 4.6"
             modelId.contains("haiku") -> "Haiku 4.5"
@@ -634,9 +592,12 @@ class ChatContainerPanel(
         controller.viewModel.modeLabel = when (modeId) {
             "default" -> UcuBundle.message("mode.default.name")
             "plan" -> UcuBundle.message("mode.plan.name")
+            "autoEdit" -> UcuBundle.message("mode.agent.name")
             "bypassPermissions" -> UcuBundle.message("mode.auto.name")
             else -> modeId
         }
+        controller.viewModel.streamingEnabled = settings.state.streamingEnabled
+        controller.viewModel.thinkingEnabled = settings.state.thinkingEnabled
     }
 
     // ── History toggle ───────────────────────────────────────────────────────
@@ -731,15 +692,15 @@ class ChatContainerPanel(
         // Attach caret listener so we track selection/cursor changes within the same file
         attachCaretListener(editor)
 
-        val line = editor.caretModel.logicalPosition.line + 1
         val selection = editor.selectionModel
-        val lineRange = if (selection.hasSelection()) {
-            val startLine = editor.document.getLineNumber(selection.selectionStart) + 1
-            val endLine = editor.document.getLineNumber(selection.selectionEnd) + 1
-            if (startLine == endLine) "#L$startLine" else "#L$startLine-L$endLine"
-        } else {
-            "#L$line"
+        if (!selection.hasSelection()) {
+            controller.viewModel.fileContext = null
+            return
         }
+
+        val startLine = editor.document.getLineNumber(selection.selectionStart) + 1
+        val endLine = editor.document.getLineNumber(selection.selectionEnd) + 1
+        val lineRange = if (startLine == endLine) "#L$startLine" else "#L$startLine-L$endLine"
 
         controller.viewModel.fileContext = FileContextData(
             fileName = vFile.name,

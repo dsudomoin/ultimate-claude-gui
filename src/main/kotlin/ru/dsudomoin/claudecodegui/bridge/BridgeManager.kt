@@ -1,11 +1,15 @@
 package ru.dsudomoin.claudecodegui.bridge
 
 import com.intellij.openapi.diagnostic.Logger
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import ru.dsudomoin.claudecodegui.bridge.ProcessEnvironment.withNodeEnvironment
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.nio.file.Paths
 
 /**
@@ -17,6 +21,7 @@ import java.nio.file.Paths
 object BridgeManager {
 
     private val log = Logger.getInstance(BridgeManager::class.java)
+    private val mutex = Mutex()
 
     val bridgeDir: File by lazy {
         val home = System.getProperty("user.home")
@@ -28,13 +33,13 @@ object BridgeManager {
 
     /**
      * Ensures the bridge is extracted and dependencies are installed.
-     * Should be called from a background thread.
+     * Thread-safe via Mutex — concurrent callers will wait.
      *
      * Always re-extracts bridge scripts to pick up plugin updates.
      *
      * @return true if the bridge is ready to use
      */
-    fun ensureReady(): Boolean {
+    suspend fun ensureReady(): Boolean = mutex.withLock {
         try {
             extractBridge()
             val nodeModules = File(bridgeDir, "node_modules")
@@ -46,10 +51,10 @@ object BridgeManager {
                 if (nodeModules.exists()) nodeModules.deleteRecursively()
                 installDependencies()
             }
-            return isReady
+            isReady
         } catch (e: Exception) {
             log.error("Bridge setup failed", e)
-            return false
+            false
         }
     }
 
@@ -57,7 +62,7 @@ object BridgeManager {
      * Ensures bridge scripts are up-to-date on disk.
      * Called before each query to pick up changes after plugin updates.
      */
-    fun ensureScriptsUpdated() {
+    suspend fun ensureScriptsUpdated() = mutex.withLock {
         try {
             extractBridge()
         } catch (e: Exception) {
@@ -67,7 +72,7 @@ object BridgeManager {
 
     /**
      * Extracts bridge files from plugin JAR resources to disk.
-     * Overwrites existing files to ensure the latest version is used.
+     * Uses atomic move for crash-safety: writes to tmp file first, then renames.
      */
     private fun extractBridge() {
         bridgeDir.mkdirs()
@@ -80,17 +85,27 @@ object BridgeManager {
                 continue
             }
             val target = File(bridgeDir, name)
+            val tmp = File(bridgeDir, "$name.tmp")
             input.use { src ->
-                target.outputStream().use { dst ->
+                tmp.outputStream().use { dst ->
                     src.copyTo(dst)
                 }
+            }
+            try {
+                Files.move(
+                    tmp.toPath(), target.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE
+                )
+            } catch (_: java.io.IOException) {
+                // Filesystem doesn't support atomic move — fallback to plain replace
+                Files.move(tmp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
             }
             log.info("Extracted bridge resource: ${target.absolutePath}")
         }
     }
 
     /**
-     * Runs `npm install` in the bridge directory.
+     * Runs `npm ci` (or falls back to `npm install`) in the bridge directory.
      * Requires node/npm to be available on PATH or detected by NodeDetector.
      */
     private fun installDependencies() {
@@ -106,9 +121,17 @@ object BridgeManager {
                 ?: "npm" // fallback to PATH
         }
 
-        log.info("Running npm install in ${bridgeDir.absolutePath}")
+        // Try npm ci first (faster, reproducible), fall back to npm install
+        val hasLockFile = File(bridgeDir, "package-lock.json").exists()
+        val installArgs = if (hasLockFile) {
+            listOf(npmCmd, "ci", "--omit=dev", "--no-optional")
+        } else {
+            listOf(npmCmd, "install", "--omit=dev", "--no-optional")
+        }
 
-        val process = ProcessBuilder(npmCmd, "install", "--omit=dev", "--no-optional")
+        log.info("Running ${installArgs.drop(1).joinToString(" ")} in ${bridgeDir.absolutePath}")
+
+        val process = ProcessBuilder(installArgs)
             .directory(bridgeDir)
             .withNodeEnvironment(nodePath)
             .redirectErrorStream(true)
@@ -118,8 +141,24 @@ object BridgeManager {
         val exitCode = process.waitFor()
 
         if (exitCode != 0) {
-            log.error("npm install failed (exit=$exitCode): $output")
-            throw RuntimeException("npm install failed: $output")
+            // If npm ci failed, fall back to npm install
+            if (hasLockFile) {
+                log.warn("npm ci failed (exit=$exitCode), falling back to npm install")
+                val fallback = ProcessBuilder(npmCmd, "install", "--omit=dev", "--no-optional")
+                    .directory(bridgeDir)
+                    .withNodeEnvironment(nodePath)
+                    .redirectErrorStream(true)
+                    .start()
+                val fbOutput = fallback.inputStream.bufferedReader().readText()
+                val fbExit = fallback.waitFor()
+                if (fbExit != 0) {
+                    log.error("npm install failed (exit=$fbExit): $fbOutput")
+                    throw RuntimeException("npm install failed: $fbOutput")
+                }
+            } else {
+                log.error("npm install failed (exit=$exitCode): $output")
+                throw RuntimeException("npm install failed: $output")
+            }
         }
 
         log.info("npm install completed successfully")
@@ -144,13 +183,86 @@ object BridgeManager {
     }
 
     /**
+     * Queries npm registry for the latest SDK version.
+     * Returns version string (e.g. "0.3.0") or null if offline/error.
+     */
+    fun checkLatestSdkVersion(): String? {
+        val nodePath = NodeDetector.detect() ?: return null
+        val nodeDir = File(nodePath).parentFile
+        val npmCmd = if (System.getProperty("os.name").lowercase().contains("win")) {
+            File(nodeDir, "npm.cmd").absolutePath
+        } else {
+            File(nodeDir, "npm").absolutePath.takeIf { File(it).canExecute() }
+                ?: "npm"
+        }
+
+        return try {
+            val process = ProcessBuilder(npmCmd, "view", "@anthropic-ai/claude-agent-sdk", "version")
+                .directory(bridgeDir)
+                .withNodeEnvironment(nodePath)
+                .redirectErrorStream(true)
+                .start()
+            val output = process.inputStream.bufferedReader().readText().trim()
+            val exitCode = process.waitFor()
+            if (exitCode == 0 && output.matches(Regex("\\d+\\.\\d+\\.\\d+.*"))) {
+                output
+            } else {
+                log.warn("npm view failed (exit=$exitCode): $output")
+                null
+            }
+        } catch (e: Exception) {
+            log.warn("Failed to check latest SDK version: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Updates SDK to latest version via npm install.
+     * Thread-safe via Mutex.
+     */
+    suspend fun updateSdk(): Boolean = mutex.withLock {
+        val nodePath = NodeDetector.detect()
+            ?: throw IllegalStateException("Node.js not found")
+
+        val nodeDir = File(nodePath).parentFile
+        val npmCmd = if (System.getProperty("os.name").lowercase().contains("win")) {
+            File(nodeDir, "npm.cmd").absolutePath
+        } else {
+            File(nodeDir, "npm").absolutePath.takeIf { File(it).canExecute() }
+                ?: "npm"
+        }
+
+        log.info("Updating SDK to latest version...")
+        val process = ProcessBuilder(npmCmd, "install", "@anthropic-ai/claude-agent-sdk@latest", "--omit=dev", "--no-optional")
+            .directory(bridgeDir)
+            .withNodeEnvironment(nodePath)
+            .redirectErrorStream(true)
+            .start()
+        val output = process.inputStream.bufferedReader().readText()
+        val exitCode = process.waitFor()
+
+        if (exitCode != 0) {
+            log.error("SDK update failed (exit=$exitCode): $output")
+            throw RuntimeException("npm install failed: $output")
+        }
+        log.info("SDK updated successfully")
+        true
+    }
+
+    /**
      * Force re-install of dependencies (e.g., after plugin update).
      */
-    fun reinstall() {
+    suspend fun reinstall() = mutex.withLock {
         val nodeModules = File(bridgeDir, "node_modules")
         if (nodeModules.exists()) {
             nodeModules.deleteRecursively()
         }
-        ensureReady()
+        // Call internal logic directly (already holding the lock)
+        try {
+            extractBridge()
+            installDependencies()
+        } catch (e: Exception) {
+            log.error("Reinstall failed", e)
+        }
     }
 }

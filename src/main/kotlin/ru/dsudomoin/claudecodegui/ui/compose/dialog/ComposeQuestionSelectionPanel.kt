@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -31,8 +32,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -72,7 +77,7 @@ private const val OTHER_MARKER = "__OTHER__"
 
 /**
  * Compose equivalent of QuestionSelectionPanel.
- * Shows question text, option chips, "Other" text input, and Submit/Cancel buttons.
+ * Shows question text, option cards, "Other" text input, and Submit/Cancel buttons.
  */
 @Composable
 fun ComposeQuestionSelectionPanel(
@@ -83,7 +88,6 @@ fun ComposeQuestionSelectionPanel(
 ) {
     val colors = LocalClaudeColors.current
     var currentIndex by remember { mutableIntStateOf(0) }
-    // Use immutable Set<String> so map mutations trigger recomposition
     val answers = remember { mutableStateMapOf<String, Set<String>>() }
     val customInputs = remember { mutableStateMapOf<String, String>() }
     var otherInputOpen by remember { mutableStateOf(false) }
@@ -91,7 +95,6 @@ fun ComposeQuestionSelectionPanel(
     val question = questions.getOrNull(currentIndex) ?: return
     val selected: Set<String> = answers.getOrPut(question.question) { emptySet() }
 
-    // Helper to update selection for current question
     fun updateSelection(transform: (Set<String>) -> Set<String>) {
         answers[question.question] = transform(selected)
     }
@@ -101,64 +104,64 @@ fun ComposeQuestionSelectionPanel(
             .fillMaxWidth()
             .background(colors.surfaceSecondary)
             .drawBehind {
-                // Top border
                 drawRect(
                     color = colors.borderNormal,
                     size = size.copy(height = 1.dp.toPx()),
                 )
             }
-            .padding(8.dp),
+            .padding(12.dp),
     ) {
-        // Header + counter
+        // Header badge + counter
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (question.header.isNotEmpty()) {
-                Text(
-                    text = question.header,
-                    style = TextStyle(
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colors.accent,
-                    ),
+                Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(2.dp))
-                        .drawBehind {
-                            drawRoundRect(
-                                color = colors.accent,
-                                cornerRadius = CornerRadius(2.dp.toPx()),
-                                style = Stroke(width = 1.dp.toPx()),
-                            )
-                        }
-                        .padding(horizontal = 6.dp, vertical = 1.dp),
-                )
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(colors.accent.copy(alpha = 0.15f))
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                ) {
+                    Text(
+                        text = question.header,
+                        style = TextStyle(
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = colors.accent,
+                        ),
+                    )
+                }
                 Spacer(Modifier.width(8.dp))
             }
             if (questions.size > 1) {
                 Text(
                     text = "${currentIndex + 1} / ${questions.size}",
-                    style = TextStyle(fontSize = 10.sp, color = colors.textSecondary),
+                    style = TextStyle(fontSize = 11.sp, color = colors.textSecondary),
                 )
             }
         }
 
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(8.dp))
 
         // Question text
         Text(
             text = question.question,
-            style = TextStyle(fontSize = 13.sp, color = colors.textPrimary),
+            style = TextStyle(
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = colors.textPrimary,
+            ),
         )
 
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(10.dp))
 
         // Options list
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 200.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+                .heightIn(max = 260.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             items(question.options) { opt ->
-                OptionChip(
+                OptionCard(
                     label = opt.label,
                     description = opt.description,
                     isSelected = opt.label in selected,
@@ -186,7 +189,7 @@ fun ComposeQuestionSelectionPanel(
                     UcuBundle.message("question.otherDesc")
                 }
 
-                OptionChip(
+                OptionCard(
                     label = UcuBundle.message("question.otherLabel"),
                     description = otherDesc,
                     isSelected = isOtherSelected,
@@ -207,7 +210,7 @@ fun ComposeQuestionSelectionPanel(
                     },
                 )
 
-                // Custom text input with Shift+Enter support
+                // Custom text input
                 if (isOtherSelected && otherInputOpen) {
                     Spacer(Modifier.height(6.dp))
 
@@ -226,11 +229,11 @@ fun ComposeQuestionSelectionPanel(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 50.dp, max = 120.dp)
-                            .clip(RoundedCornerShape(4.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .drawBehind {
                                 drawRoundRect(
                                     color = colors.accent,
-                                    cornerRadius = CornerRadius(4.dp.toPx()),
+                                    cornerRadius = CornerRadius(8.dp.toPx()),
                                     style = Stroke(width = 1.dp.toPx()),
                                 )
                             }
@@ -248,10 +251,10 @@ fun ComposeQuestionSelectionPanel(
                                         selection = TextRange(newCursor),
                                     )
                                     customInputs[question.question] = newText
-                                    true // consumed
+                                    true
                                 } else false
                             }
-                            .padding(6.dp),
+                            .padding(10.dp),
                         decorationBox = { innerTextField ->
                             if (textFieldValue.text.isEmpty()) {
                                 Text(
@@ -266,7 +269,7 @@ fun ComposeQuestionSelectionPanel(
             }
         }
 
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(12.dp))
 
         // Bottom: Cancel + Submit/Next
         Row(
@@ -278,7 +281,7 @@ fun ComposeQuestionSelectionPanel(
                 isPrimary = false,
                 onClick = onCancel,
             )
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(10.dp))
 
             val isLast = currentIndex >= questions.size - 1
             val canProceed = selected.any { it != OTHER_MARKER } ||
@@ -290,7 +293,6 @@ fun ComposeQuestionSelectionPanel(
                 enabled = canProceed,
                 onClick = {
                     if (isLast) {
-                        // Collect all answers
                         val result = mutableMapOf<String, List<String>>()
                         for ((q, sel) in answers) {
                             val labels = sel.filter { it != OTHER_MARKER }.toMutableList()
@@ -311,10 +313,10 @@ fun ComposeQuestionSelectionPanel(
     }
 }
 
-// ── Option Chip ──────────────────────────────────────────────────────────────
+// ── Option Card ─────────────────────────────────────────────────────────────
 
 @Composable
-private fun OptionChip(
+private fun OptionCard(
     label: String,
     description: String,
     isSelected: Boolean,
@@ -327,56 +329,50 @@ private fun OptionChip(
     val isHovered by interactionSource.collectIsHoveredAsState()
 
     val bgColor = when {
-        isSelected -> colors.chipSelectedBg
-        isHovered -> colors.chipHover
+        isSelected -> colors.accent.copy(alpha = 0.12f)
+        isHovered -> colors.hoverOverlay
         else -> colors.chipBg
     }
-    val borderColor = if (isSelected) colors.chipSelectedBorder else colors.chipBorder
+    val borderColor = if (isSelected) colors.accent.copy(alpha = 0.5f) else colors.chipBorder
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(10.dp))
             .background(bgColor)
             .drawBehind {
                 drawRoundRect(
                     color = borderColor,
-                    cornerRadius = CornerRadius(8.dp.toPx()),
+                    cornerRadius = CornerRadius(10.dp.toPx()),
                     style = Stroke(width = 1.dp.toPx()),
                 )
             }
             .hoverable(interactionSource)
             .clickable(onClick = onClick)
             .pointerHoverIcon(PointerIcon.Hand)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
     ) {
-        // Radio/checkbox icon
-        val icon = if (multiSelect) {
-            if (isSelected) "\u2611" else "\u2610"
+        // Canvas-drawn radio / checkbox
+        if (multiSelect) {
+            CheckboxIcon(checked = isSelected)
         } else {
-            if (isSelected) "\u25C9" else "\u25CB"
+            RadioIcon(selected = isSelected)
         }
-        Text(
-            text = icon,
-            style = TextStyle(
-                fontSize = 14.sp,
-                color = if (isSelected) colors.accent else colors.textSecondary,
-            ),
-        )
 
-        Spacer(Modifier.width(6.dp))
+        Spacer(Modifier.width(10.dp))
 
-        Column {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = label,
                 style = TextStyle(
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
                     color = colors.textPrimary,
                 ),
             )
             if (description.isNotEmpty()) {
+                Spacer(Modifier.height(1.dp))
                 Text(
                     text = description,
                     style = TextStyle(
@@ -387,6 +383,90 @@ private fun OptionChip(
             }
         }
     }
+}
+
+// ── Canvas Icons ────────────────────────────────────────────────────────────
+
+@Composable
+private fun RadioIcon(selected: Boolean) {
+    val colors = LocalClaudeColors.current
+    val accentColor = colors.accent
+    val borderColor = if (selected) accentColor else colors.textSecondary
+
+    Box(
+        modifier = Modifier
+            .size(18.dp)
+            .drawBehind {
+                val center = Offset(size.width / 2, size.height / 2)
+                val outerRadius = size.minDimension / 2 - 1.dp.toPx()
+
+                // Outer circle
+                drawCircle(
+                    color = borderColor,
+                    radius = outerRadius,
+                    center = center,
+                    style = Stroke(width = 1.5.dp.toPx()),
+                )
+
+                // Inner filled circle when selected
+                if (selected) {
+                    drawCircle(
+                        color = accentColor,
+                        radius = outerRadius - 3.5.dp.toPx(),
+                        center = center,
+                    )
+                }
+            },
+    )
+}
+
+@Composable
+private fun CheckboxIcon(checked: Boolean) {
+    val colors = LocalClaudeColors.current
+    val accentColor = colors.accent
+    val borderColor = if (checked) accentColor else colors.textSecondary
+
+    Box(
+        modifier = Modifier
+            .size(18.dp)
+            .drawBehind {
+                val cornerRadius = 4.dp.toPx()
+                val inset = 1.dp.toPx()
+
+                if (checked) {
+                    // Filled rounded rect
+                    drawRoundRect(
+                        color = accentColor,
+                        topLeft = Offset(inset, inset),
+                        size = Size(size.width - 2 * inset, size.height - 2 * inset),
+                        cornerRadius = CornerRadius(cornerRadius),
+                    )
+                    // White checkmark
+                    val path = Path().apply {
+                        moveTo(size.width * 0.25f, size.height * 0.5f)
+                        lineTo(size.width * 0.42f, size.height * 0.68f)
+                        lineTo(size.width * 0.75f, size.height * 0.32f)
+                    }
+                    drawPath(
+                        path = path,
+                        color = Color.White,
+                        style = Stroke(
+                            width = 2.dp.toPx(),
+                            cap = StrokeCap.Round,
+                        ),
+                    )
+                } else {
+                    // Outlined rounded rect
+                    drawRoundRect(
+                        color = borderColor,
+                        topLeft = Offset(inset, inset),
+                        size = Size(size.width - 2 * inset, size.height - 2 * inset),
+                        cornerRadius = CornerRadius(cornerRadius),
+                        style = Stroke(width = 1.5.dp.toPx()),
+                    )
+                }
+            },
+    )
 }
 
 // ── Action Button ────────────────────────────────────────────────────────────
@@ -417,15 +497,15 @@ private fun ActionButton(
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
-            .height(30.dp)
-            .clip(RoundedCornerShape(6.dp))
+            .height(34.dp)
+            .clip(RoundedCornerShape(8.dp))
             .background(bgColor)
             .then(
                 if (!isPrimary) {
                     Modifier.drawBehind {
                         drawRoundRect(
                             color = colors.chipBorder,
-                            cornerRadius = CornerRadius(6.dp.toPx()),
+                            cornerRadius = CornerRadius(8.dp.toPx()),
                             style = Stroke(width = 1.dp.toPx()),
                         )
                     }
@@ -434,12 +514,13 @@ private fun ActionButton(
             .hoverable(interactionSource)
             .clickable(enabled = enabled, onClick = onClick)
             .pointerHoverIcon(if (enabled) PointerIcon.Hand else PointerIcon.Default)
-            .padding(horizontal = 20.dp),
+            .padding(horizontal = 24.dp),
     ) {
         Text(
             text = text,
             style = TextStyle(
-                fontSize = 12.sp,
+                fontSize = 13.sp,
+                fontWeight = if (isPrimary) FontWeight.SemiBold else FontWeight.Normal,
                 color = textColor,
             ),
         )

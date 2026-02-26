@@ -47,6 +47,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.jetbrains.jewel.ui.component.Text
 import ru.dsudomoin.claudecodegui.UcuBundle
+import ru.dsudomoin.claudecodegui.command.SlashCommand
+import ru.dsudomoin.claudecodegui.command.SlashCommandRegistry
 import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
 
 @Composable
@@ -55,7 +57,9 @@ fun ComposeChatInputPanel(
     onTextChange: (String) -> Unit,
     isSending: Boolean,
     selectedModelName: String,
+    selectedModelId: String = "",
     modeLabel: String,
+    selectedModeId: String = "",
     contextUsage: ContextUsageData,
     fileContext: FileContextData?,
     attachedImages: List<AttachedImageData>,
@@ -65,9 +69,12 @@ fun ComposeChatInputPanel(
     onSendOrStop: () -> Unit,
     onAttachClick: () -> Unit,
     onPasteImage: () -> Boolean = { false },
-    onSettingsClick: () -> Unit,
-    onModelClick: () -> Unit,
-    onModeClick: () -> Unit,
+    streamingEnabled: Boolean = true,
+    thinkingEnabled: Boolean = true,
+    onStreamingToggle: () -> Unit = {},
+    onThinkingToggle: () -> Unit = {},
+    onModelSelect: (String) -> Unit = {},
+    onModeSelect: (String) -> Unit = {},
     onEnhanceClick: () -> Unit,
     onFileContextClick: (String) -> Unit,
     onFileContextRemove: () -> Unit,
@@ -77,6 +84,10 @@ fun ComposeChatInputPanel(
     onMentionQuery: (String) -> Unit = {},
     onMentionSelect: (Int) -> Unit = {},
     onMentionDismiss: () -> Unit = {},
+    inputHistory: List<String> = emptyList(),
+    onAddToHistory: (String) -> Unit = {},
+    statusPanelVisible: Boolean = true,
+    onStatusPanelToggle: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalClaudeColors.current
@@ -97,6 +108,20 @@ fun ComposeChatInputPanel(
     // Reset selection when suggestions change
     LaunchedEffect(mentionSuggestions) {
         mentionSelectedIndex = 0
+    }
+
+    // Input history navigation state (feature 59)
+    var historyDraft by remember { mutableStateOf("") }
+    var historyIndex by remember { mutableIntStateOf(-1) }
+
+    // Slash command autocomplete state
+    var slashCommands by remember { mutableStateOf<List<SlashCommand>>(emptyList()) }
+    var slashPopupVisible by remember { mutableStateOf(false) }
+    var slashSelectedIndex by remember { mutableIntStateOf(0) }
+
+    // Reset selection when commands change
+    LaunchedEffect(slashCommands) {
+        slashSelectedIndex = 0
     }
 
     Column(
@@ -178,7 +203,30 @@ fun ComposeChatInputPanel(
                 onAttachClick = onAttachClick,
                 onFileContextClick = onFileContextClick,
                 onFileContextRemove = onFileContextRemove,
+                statusPanelVisible = statusPanelVisible,
+                onStatusPanelToggle = onStatusPanelToggle,
             )
+
+            // Slash command suggestions (inline, between header and text area)
+            if (slashPopupVisible && slashCommands.isNotEmpty()) {
+                ComposeSlashCommandContent(
+                    commands = slashCommands,
+                    selectedIndex = slashSelectedIndex,
+                    onSelect = { cmd ->
+                        val newText = cmd.name + " "
+                        tfv = TextFieldValue(newText, TextRange(newText.length))
+                        onTextChange(newText)
+                        slashPopupVisible = false
+                        slashCommands = emptyList()
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 200.dp)
+                        .padding(horizontal = 4.dp)
+                        .background(colors.dropdownBg, RoundedCornerShape(8.dp))
+                        .border(1.dp, colors.borderNormal, RoundedCornerShape(8.dp)),
+                )
+            }
 
             // Mention suggestions (inline, between header and text area)
             if (mentionPopupVisible && mentionSuggestions.isNotEmpty()) {
@@ -202,6 +250,7 @@ fun ComposeChatInputPanel(
             BasicTextField(
                 value = tfv,
                 onValueChange = { newValue ->
+                    if (historyIndex != -1) historyIndex = -1
                     tfv = newValue
                     onTextChange(newValue.text)
                     // Detect @ mention query
@@ -210,6 +259,16 @@ fun ComposeChatInputPanel(
                         onMentionQuery(query)
                     } else {
                         onMentionDismiss()
+                    }
+                    // Detect / slash command query
+                    val slashQuery = extractSlashQuery(newValue.text)
+                    if (slashQuery != null) {
+                        val filtered = SlashCommandRegistry.filter(slashQuery)
+                        slashCommands = filtered
+                        slashPopupVisible = filtered.isNotEmpty()
+                    } else {
+                        slashPopupVisible = false
+                        slashCommands = emptyList()
                     }
                 },
                 textStyle = TextStyle(
@@ -229,6 +288,32 @@ fun ComposeChatInputPanel(
                                 // Ctrl+V / Cmd+V — try paste image from clipboard first
                                 event.key == Key.V && (event.isCtrlPressed || event.isMetaPressed) -> {
                                     if (onPasteImage()) true else false // let default paste handle text
+                                }
+                                // Slash popup navigation
+                                slashPopupVisible && event.key == Key.DirectionDown -> {
+                                    slashSelectedIndex = (slashSelectedIndex + 1)
+                                        .coerceAtMost(slashCommands.size - 1)
+                                    true
+                                }
+                                slashPopupVisible && event.key == Key.DirectionUp -> {
+                                    slashSelectedIndex = (slashSelectedIndex - 1).coerceAtLeast(0)
+                                    true
+                                }
+                                slashPopupVisible && (event.key == Key.Enter || event.key == Key.Tab) -> {
+                                    val cmd = slashCommands.getOrNull(slashSelectedIndex)
+                                    if (cmd != null) {
+                                        val newText = cmd.name + " "
+                                        tfv = TextFieldValue(newText, TextRange(newText.length))
+                                        onTextChange(newText)
+                                        slashPopupVisible = false
+                                        slashCommands = emptyList()
+                                    }
+                                    true
+                                }
+                                slashPopupVisible && event.key == Key.Escape -> {
+                                    slashPopupVisible = false
+                                    slashCommands = emptyList()
+                                    true
                                 }
                                 // Mention popup navigation
                                 mentionPopupVisible && event.key == Key.DirectionDown -> {
@@ -256,10 +341,44 @@ fun ComposeChatInputPanel(
                                     onTextChange(newText)
                                     true
                                 }
-                                // Plain Enter = send message
+                                // Plain Enter = send message (or queue if already sending)
                                 event.key == Key.Enter -> {
-                                    if (text.isNotBlank() && !isSending) {
+                                    if (text.isNotBlank()) {
+                                        onAddToHistory(text)
+                                        historyIndex = -1
+                                        historyDraft = ""
                                         onSendOrStop()
+                                    }
+                                    true
+                                }
+                                // ArrowUp — navigate backwards in input history
+                                !slashPopupVisible && !mentionPopupVisible
+                                    && event.key == Key.DirectionUp
+                                    && inputHistory.isNotEmpty() -> {
+                                    if (historyIndex == -1) {
+                                        historyDraft = tfv.text
+                                        historyIndex = inputHistory.lastIndex
+                                    } else {
+                                        historyIndex = (historyIndex - 1).coerceAtLeast(0)
+                                    }
+                                    val newText = inputHistory[historyIndex]
+                                    tfv = TextFieldValue(newText, TextRange(newText.length))
+                                    onTextChange(newText)
+                                    true
+                                }
+                                // ArrowDown — navigate forward, restore draft at end
+                                !slashPopupVisible && !mentionPopupVisible
+                                    && event.key == Key.DirectionDown
+                                    && historyIndex != -1 -> {
+                                    if (historyIndex >= inputHistory.lastIndex) {
+                                        historyIndex = -1
+                                        tfv = TextFieldValue(historyDraft, TextRange(historyDraft.length))
+                                        onTextChange(historyDraft)
+                                    } else {
+                                        historyIndex++
+                                        val newText = inputHistory[historyIndex]
+                                        tfv = TextFieldValue(newText, TextRange(newText.length))
+                                        onTextChange(newText)
                                     }
                                     true
                                 }
@@ -286,11 +405,16 @@ fun ComposeChatInputPanel(
             // Bottom toolbar
             ComposeInputToolbar(
                 selectedModelName = selectedModelName,
+                selectedModelId = selectedModelId,
                 modeLabel = modeLabel,
+                selectedModeId = selectedModeId,
                 isSending = isSending,
-                onSettingsClick = onSettingsClick,
-                onModelClick = onModelClick,
-                onModeClick = onModeClick,
+                streamingEnabled = streamingEnabled,
+                thinkingEnabled = thinkingEnabled,
+                onStreamingToggle = onStreamingToggle,
+                onThinkingToggle = onThinkingToggle,
+                onModelSelect = onModelSelect,
+                onModeSelect = onModeSelect,
                 onEnhanceClick = onEnhanceClick,
                 onSendOrStop = onSendOrStop,
             )
@@ -304,4 +428,14 @@ private fun extractMentionQuery(text: String): String? {
     val afterAt = text.substring(atIdx + 1)
     if (afterAt.contains(' ') || afterAt.contains('\n')) return null
     return afterAt
+}
+
+/**
+ * If text starts with "/" and has no spaces, return it as a slash query.
+ * E.g. "/com" → "/com", "/compact arg" → null, "hello" → null
+ */
+private fun extractSlashQuery(text: String): String? {
+    if (!text.startsWith("/")) return null
+    if (text.contains(' ') || text.contains('\n')) return null
+    return text
 }

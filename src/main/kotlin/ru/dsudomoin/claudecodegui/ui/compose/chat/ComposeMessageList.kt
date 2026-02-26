@@ -69,6 +69,13 @@ fun ComposeMessageList(
     onInstallNode: (() -> Unit)? = null,
     onLogin: (() -> Unit)? = null,
     onDownloadNode: (() -> Unit)? = null,
+    // ── SDK version ──
+    sdkCurrentVersion: String? = null,
+    sdkLatestVersion: String? = null,
+    sdkUpdateAvailable: Boolean = false,
+    sdkUpdating: Boolean = false,
+    sdkUpdateError: String? = null,
+    onUpdateSdk: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
 
@@ -86,7 +93,15 @@ fun ComposeMessageList(
                 modifier = modifier,
             )
         } else {
-            WelcomeScreen(modifier = modifier)
+            WelcomeScreen(
+                sdkCurrentVersion = sdkCurrentVersion,
+                sdkLatestVersion = sdkLatestVersion,
+                sdkUpdateAvailable = sdkUpdateAvailable,
+                sdkUpdating = sdkUpdating,
+                sdkUpdateError = sdkUpdateError,
+                onUpdateSdk = onUpdateSdk,
+                modifier = modifier,
+            )
         }
         return
     }
@@ -98,7 +113,7 @@ fun ComposeMessageList(
             .fillMaxSize()
             .padding(horizontal = 8.dp, vertical = 6.dp),
     ) {
-        itemsIndexed(messages) { index, message ->
+        itemsIndexed(messages, key = { index, msg -> "${index}_${msg.timestamp}" }) { index, message ->
             val prevRole = if (index > 0) messages[index - 1].role else null
 
             // Separator between role transitions
@@ -467,7 +482,15 @@ private fun SetupActionButton(
 // ── Welcome Screen ─────────────────────────────────────────────────────
 
 @Composable
-private fun WelcomeScreen(modifier: Modifier = Modifier) {
+private fun WelcomeScreen(
+    sdkCurrentVersion: String? = null,
+    sdkLatestVersion: String? = null,
+    sdkUpdateAvailable: Boolean = false,
+    sdkUpdating: Boolean = false,
+    sdkUpdateError: String? = null,
+    onUpdateSdk: () -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
     val colors = LocalClaudeColors.current
 
     Box(
@@ -498,6 +521,56 @@ private fun WelcomeScreen(modifier: Modifier = Modifier) {
                     color = colors.textSecondary,
                 ),
             )
+
+            // SDK version (under subtitle)
+            if (sdkCurrentVersion != null) {
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = UcuBundle.message("sdk.version", sdkCurrentVersion),
+                        style = TextStyle(fontSize = 11.sp, color = colors.textSecondary),
+                    )
+                    when {
+                        sdkUpdating -> {
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = UcuBundle.message("sdk.updating"),
+                                style = TextStyle(fontSize = 11.sp, color = colors.textSecondary),
+                            )
+                        }
+                        sdkUpdateError != null -> {
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = UcuBundle.message("sdk.updateError"),
+                                style = TextStyle(fontSize = 11.sp, color = colors.statusError),
+                            )
+                        }
+                        sdkUpdateAvailable && sdkLatestVersion != null -> {
+                            Spacer(Modifier.width(6.dp))
+                            val interactionSource = remember { MutableInteractionSource() }
+                            val isHovered by interactionSource.collectIsHoveredAsState()
+                            Text(
+                                text = UcuBundle.message("sdk.updateAvailable", sdkLatestVersion),
+                                style = TextStyle(
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (isHovered) colors.accentSecondary.copy(alpha = 0.8f)
+                                            else colors.accentSecondary,
+                                ),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .hoverable(interactionSource)
+                                    .clickable { onUpdateSdk() }
+                                    .pointerHoverIcon(PointerIcon.Hand)
+                                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                            )
+                        }
+                    }
+                }
+            }
 
             Spacer(Modifier.height(24.dp))
 
