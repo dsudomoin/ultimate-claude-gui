@@ -7,6 +7,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
+import kotlinx.coroutines.future.await
 import java.net.URI
 import java.net.URLEncoder
 import java.net.http.HttpClient
@@ -14,6 +15,7 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.nio.file.Paths
 import java.time.Duration
+import java.util.concurrent.TimeUnit
 
 /**
  * Reads and manages OAuth credentials from Claude Code CLI session.
@@ -199,10 +201,13 @@ class OAuthCredentialService {
             .POST(HttpRequest.BodyPublishers.ofString(formBody))
             .build()
 
-        val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+        val response = httpClient
+            .sendAsync(request, HttpResponse.BodyHandlers.ofString())
+            .orTimeout(20, TimeUnit.SECONDS)
+            .await()
 
         if (response.statusCode() != 200) {
-            log.warn("Token refresh failed: ${response.statusCode()} — ${response.body()}")
+            log.warn("Token refresh failed: status=${response.statusCode()}")
             return null
         }
 

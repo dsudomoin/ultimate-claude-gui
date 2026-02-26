@@ -66,9 +66,10 @@ fun ComposeChatContainer(
                 onSendOrStop = callbacks.onSendOrStop,
                 onAttachClick = callbacks.onAttachClick,
                 onPasteImage = callbacks.onPasteImage,
-                onSettingsClick = callbacks.onSettingsClick,
-                onModelClick = callbacks.onModelClick,
-                onModeClick = callbacks.onModeClick,
+                onStreamingToggle = callbacks.onStreamingToggle,
+                onThinkingToggle = callbacks.onThinkingToggle,
+                onModelSelect = callbacks.onModelSelect,
+                onModeSelect = callbacks.onModeSelect,
                 onEnhanceClick = callbacks.onEnhanceClick,
                 onFileContextClick = callbacks.onFileContextClick,
                 onFileContextRemove = callbacks.onFileContextRemove,
@@ -90,6 +91,7 @@ fun ComposeChatContainer(
                 onQuestionSubmit = callbacks.onQuestionSubmit,
                 onQuestionCancel = callbacks.onQuestionCancel,
                 onPlanApprove = callbacks.onPlanApprove,
+                onPlanApproveCompact = callbacks.onPlanApproveCompact,
                 onPlanDeny = callbacks.onPlanDeny,
                 onApprovalApprove = callbacks.onApprovalApprove,
                 onApprovalReject = callbacks.onApprovalReject,
@@ -97,6 +99,8 @@ fun ComposeChatContainer(
                 onInstallNode = callbacks.onInstallNode,
                 onLogin = callbacks.onLogin,
                 onDownloadNode = callbacks.onDownloadNode,
+                onUpdateSdk = callbacks.onUpdateSdk,
+                onTitleChange = callbacks.onTitleChange,
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -112,9 +116,10 @@ data class ChatCallbacks(
     val onSendOrStop: () -> Unit = {},
     val onAttachClick: () -> Unit = {},
     val onPasteImage: () -> Boolean = { false },
-    val onSettingsClick: () -> Unit = {},
-    val onModelClick: () -> Unit = {},
-    val onModeClick: () -> Unit = {},
+    val onStreamingToggle: () -> Unit = {},
+    val onThinkingToggle: () -> Unit = {},
+    val onModelSelect: (String) -> Unit = {},
+    val onModeSelect: (String) -> Unit = {},
     val onEnhanceClick: () -> Unit = {},
     val onFileContextClick: (String) -> Unit = {},
     val onFileContextRemove: () -> Unit = {},
@@ -143,6 +148,7 @@ data class ChatCallbacks(
     val onQuestionCancel: () -> Unit = {},
     // Plan action panel
     val onPlanApprove: () -> Unit = {},
+    val onPlanApproveCompact: () -> Unit = {},
     val onPlanDeny: () -> Unit = {},
     // Approval panel
     val onApprovalApprove: () -> Unit = {},
@@ -152,8 +158,12 @@ data class ChatCallbacks(
     val onInstallNode: () -> Unit = {},
     val onLogin: () -> Unit = {},
     val onDownloadNode: () -> Unit = {},
+    // SDK update
+    val onUpdateSdk: () -> Unit = {},
     // History
     val onLoadSession: (String) -> Unit = {},
     val onHistoryBack: () -> Unit = {},
     val onHistoryRefresh: () -> Unit = {},
+    // Title
+    val onTitleChange: (String) -> Unit = {},
 )

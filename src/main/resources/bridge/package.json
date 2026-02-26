@@ -4,6 +4,6 @@
   "description": "Node.js bridge for Claude Agent SDK",
   "type": "module",
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2"
+    "@anthropic-ai/claude-agent-sdk": "0.2"
   }
 }

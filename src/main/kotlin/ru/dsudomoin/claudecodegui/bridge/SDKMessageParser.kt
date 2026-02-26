@@ -79,10 +79,19 @@ object SDKMessageParser {
 
                 "TOOL_RESULT" -> {
                     val obj = json.parseToJsonElement(payload).jsonObject
+                    val contentEl = obj["content"]
+                    val contentStr = when {
+                        contentEl == null -> ""
+                        contentEl is kotlinx.serialization.json.JsonPrimitive -> contentEl.content
+                        contentEl is kotlinx.serialization.json.JsonArray -> contentEl
+                            .filter { it.jsonObject["type"]?.jsonPrimitive?.content == "text" }
+                            .joinToString("\n") { it.jsonObject["text"]?.jsonPrimitive?.content ?: "" }
+                        else -> contentEl.toString()
+                    }
                     ParsedEvent.Stream(
                         StreamEvent.ToolResult(
                             id = obj["id"]?.jsonPrimitive?.content ?: "",
-                            content = obj["content"]?.jsonPrimitive?.content ?: "",
+                            content = contentStr,
                             isError = obj["isError"]?.jsonPrimitive?.content?.toBoolean() ?: false
                         )
                     )

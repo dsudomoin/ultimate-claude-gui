@@ -2,6 +2,7 @@ package ru.dsudomoin.claudecodegui.ui.compose.input
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -21,7 +22,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -148,6 +154,8 @@ fun ComposeInputHeaderBar(
     onAttachClick: () -> Unit,
     onFileContextClick: (String) -> Unit,
     onFileContextRemove: () -> Unit,
+    statusPanelVisible: Boolean = true,
+    onStatusPanelToggle: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalClaudeColors.current
@@ -171,6 +179,14 @@ fun ComposeInputHeaderBar(
 
         Spacer(Modifier.width(4.dp))
 
+        // Status panel toggle: chevron down = hide, chevron up = show
+        ChevronToggleButton(
+            pointingDown = statusPanelVisible,
+            onClick = onStatusPanelToggle,
+        )
+
+        Spacer(Modifier.width(4.dp))
+
         // Divider
         Box(
             modifier = Modifier
@@ -191,4 +207,63 @@ fun ComposeInputHeaderBar(
             modifier = Modifier.weight(1f, fill = false),
         )
     }
+}
+
+// ── Chevron Toggle Button ───────────────────────────────────────────────────
+
+@Composable
+private fun ChevronToggleButton(
+    pointingDown: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = LocalClaudeColors.current
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+    val chevronColor = if (isHovered) colors.textPrimary else colors.textSecondary
+
+    Box(
+        modifier = modifier
+            .size(28.dp)
+            .background(
+                if (isHovered) colors.hoverOverlay else Color.Transparent,
+                RoundedCornerShape(4.dp),
+            )
+            .hoverable(interactionSource)
+            .clickable(onClick = onClick)
+            .pointerHoverIcon(PointerIcon.Hand)
+            .drawBehind {
+                val w = size.width
+                val h = size.height
+                // Chevron: 10dp wide, 5dp tall, centered
+                val chevronW = 10.dp.toPx()
+                val chevronH = 5.dp.toPx()
+                val cx = w / 2
+                val cy = h / 2
+
+                val path = Path().apply {
+                    if (pointingDown) {
+                        // V shape pointing down
+                        moveTo(cx - chevronW / 2, cy - chevronH / 2)
+                        lineTo(cx, cy + chevronH / 2)
+                        lineTo(cx + chevronW / 2, cy - chevronH / 2)
+                    } else {
+                        // V shape pointing up
+                        moveTo(cx - chevronW / 2, cy + chevronH / 2)
+                        lineTo(cx, cy - chevronH / 2)
+                        lineTo(cx + chevronW / 2, cy + chevronH / 2)
+                    }
+                }
+
+                drawPath(
+                    path = path,
+                    color = chevronColor,
+                    style = Stroke(
+                        width = 1.5.dp.toPx(),
+                        cap = StrokeCap.Round,
+                        join = StrokeJoin.Round,
+                    ),
+                )
+            },
+    )
 }

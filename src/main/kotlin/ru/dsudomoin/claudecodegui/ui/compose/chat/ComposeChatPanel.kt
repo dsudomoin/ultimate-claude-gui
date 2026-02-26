@@ -11,10 +11,13 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -53,9 +56,10 @@ fun ComposeChatPanel(
     onSendOrStop: () -> Unit,
     onAttachClick: () -> Unit,
     onPasteImage: () -> Boolean = { false },
-    onSettingsClick: () -> Unit,
-    onModelClick: () -> Unit,
-    onModeClick: () -> Unit,
+    onStreamingToggle: () -> Unit,
+    onThinkingToggle: () -> Unit,
+    onModelSelect: (String) -> Unit,
+    onModeSelect: (String) -> Unit,
     onEnhanceClick: () -> Unit,
     onFileContextClick: (String) -> Unit,
     onFileContextRemove: () -> Unit,
@@ -84,6 +88,7 @@ fun ComposeChatPanel(
     onQuestionCancel: () -> Unit,
     // ── Plan action callbacks ──
     onPlanApprove: () -> Unit,
+    onPlanApproveCompact: () -> Unit,
     onPlanDeny: () -> Unit,
     // ── Approval callbacks ──
     onApprovalApprove: () -> Unit,
@@ -93,6 +98,10 @@ fun ComposeChatPanel(
     onInstallNode: () -> Unit = {},
     onLogin: () -> Unit = {},
     onDownloadNode: () -> Unit = {},
+    // ── SDK update callback ──
+    onUpdateSdk: () -> Unit = {},
+    // ── Title callback ──
+    onTitleChange: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     // ── Bridge: observe ChatViewModel via listener → trigger recomposition ──
@@ -117,7 +126,11 @@ fun ComposeChatPanel(
     val thinkingCollapsed = viewModel.thinkingCollapsed
     val inputText = viewModel.inputText
     val selectedModelName = viewModel.selectedModelName
+    val selectedModelId = viewModel.selectedModelId
+    val selectedModeId = viewModel.selectedModeId
     val modeLabel = viewModel.modeLabel
+    val streamingEnabled = viewModel.streamingEnabled
+    val thinkingEnabled = viewModel.thinkingEnabled
     val contextUsage = viewModel.contextUsage
     val fileContext = viewModel.fileContext
     val attachedImages = viewModel.attachedImages
@@ -137,30 +150,72 @@ fun ComposeChatPanel(
     val setupStatus = viewModel.setupStatus
     val setupInstalling = viewModel.setupInstalling
     val setupError = viewModel.setupError
+    val sdkCurrentVersion = viewModel.sdkCurrentVersion
+    val sdkLatestVersion = viewModel.sdkLatestVersion
+    val sdkUpdateAvailable = viewModel.sdkUpdateAvailable
+    val sdkUpdating = viewModel.sdkUpdating
+    val sdkUpdateError = viewModel.sdkUpdateError
     val enhancerVisible = viewModel.enhancerVisible
     val enhancerOriginalText = viewModel.enhancerOriginalText
     val enhancerEnhancedText = viewModel.enhancerEnhancedText
     val enhancerLoading = viewModel.enhancerLoading
     val enhancerError = viewModel.enhancerError
+    val sessionTitle = viewModel.sessionTitle
+    val sessionTitleVisible = viewModel.sessionTitleVisible
+    val statusPanelVisible = viewModel.statusPanelVisible
 
     val listState = rememberLazyListState()
 
-    // Auto-scroll to bottom when trigger changes (from viewModel.requestScrollToBottom())
+    // ── Auto-scroll with pause support (feature 57) ─────────────────────────
+    var autoScrollEnabled by remember { mutableStateOf(true) }
+
+    val isAtBottom by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val lastIndex = info.totalItemsCount - 1
+            if (lastIndex < 0) true
+            else info.visibleItemsInfo.any { it.index == lastIndex }
+        }
+    }
+
+    // Resume auto-scroll when user scrolls back to bottom
+    LaunchedEffect(isAtBottom) {
+        if (isAtBottom) autoScrollEnabled = true
+    }
+
+    // Pause auto-scroll when user scrolls up during active scroll
+    LaunchedEffect(Unit) {
+        snapshotFlow { listState.isScrollInProgress to isAtBottom }
+            .collect { (scrolling, atBottom) ->
+                if (scrolling && !atBottom) autoScrollEnabled = false
+            }
+    }
+
+    // Explicit scroll request (session load) — always honors
     LaunchedEffect(scrollToBottomTrigger) {
         if (messages.isNotEmpty()) {
+            autoScrollEnabled = true
             listState.scrollToItem(messages.size - 1)
         }
     }
 
-    // Auto-scroll on new messages or streaming updates
+    // Auto-scroll on new messages or streaming updates — only when enabled
     LaunchedEffect(messages.size, streamingResponseText.length, streamingThinkingText.length) {
-        if (messages.isNotEmpty()) {
+        if (messages.isNotEmpty() && autoScrollEnabled) {
             listState.animateScrollToItem(messages.size - 1)
         }
     }
 
     Box(modifier = modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
+            // ── Session title bar ────────────────────────────────────────────────
+            if (sessionTitleVisible && sessionTitle.isNotEmpty()) {
+                ComposeChatTitleBar(
+                    title = sessionTitle,
+                    onTitleChange = onTitleChange,
+                )
+            }
+
             // ── Message list (takes remaining space) ─────────────────────────────
             Box(modifier = Modifier.weight(1f)) {
                 ComposeMessageList(
@@ -184,6 +239,12 @@ fun ComposeChatPanel(
                     onInstallNode = onInstallNode,
                     onLogin = onLogin,
                     onDownloadNode = onDownloadNode,
+                    sdkCurrentVersion = sdkCurrentVersion,
+                    sdkLatestVersion = sdkLatestVersion,
+                    sdkUpdateAvailable = sdkUpdateAvailable,
+                    sdkUpdating = sdkUpdating,
+                    sdkUpdateError = sdkUpdateError,
+                    onUpdateSdk = onUpdateSdk,
                     modifier = Modifier.fillMaxSize(),
                 )
 
@@ -196,6 +257,7 @@ fun ComposeChatPanel(
                         ComposePlanActionPanel(
                             planMarkdown = planMarkdown,
                             onApprove = onPlanApprove,
+                            onApproveCompact = onPlanApproveCompact,
                             onDeny = onPlanDeny,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -207,17 +269,19 @@ fun ComposeChatPanel(
 
             // ── Bottom section: status + queue + input ───────────────────────────
             Column(modifier = Modifier.fillMaxWidth()) {
-                // Status panel
-                ComposeStatusPanel(
-                    todos = todos,
-                    fileChanges = fileChanges,
-                    agents = agents,
-                    onFileClick = onStatusFileClick,
-                    onShowDiff = onStatusShowDiff,
-                    onUndoFile = onStatusUndoFile,
-                    onDiscardAll = onStatusDiscardAll,
-                    onKeepAll = onStatusKeepAll,
-                )
+                // Status panel (toggleable via toolbar button)
+                if (statusPanelVisible) {
+                    ComposeStatusPanel(
+                        todos = todos,
+                        fileChanges = fileChanges,
+                        agents = agents,
+                        onFileClick = onStatusFileClick,
+                        onShowDiff = onStatusShowDiff,
+                        onUndoFile = onStatusUndoFile,
+                        onDiscardAll = onStatusDiscardAll,
+                        onKeepAll = onStatusKeepAll,
+                    )
+                }
 
                 // Queue panel
                 if (queueItems.isNotEmpty()) {
@@ -267,7 +331,9 @@ fun ComposeChatPanel(
                             onTextChange = { viewModel.inputText = it },
                             isSending = isSending,
                             selectedModelName = selectedModelName,
+                            selectedModelId = selectedModelId,
                             modeLabel = modeLabel,
+                            selectedModeId = selectedModeId,
                             contextUsage = contextUsage,
                             fileContext = fileContext,
                             attachedImages = attachedImages,
@@ -277,9 +343,12 @@ fun ComposeChatPanel(
                             onSendOrStop = onSendOrStop,
                             onAttachClick = onAttachClick,
                             onPasteImage = onPasteImage,
-                            onSettingsClick = onSettingsClick,
-                            onModelClick = onModelClick,
-                            onModeClick = onModeClick,
+                            streamingEnabled = streamingEnabled,
+                            thinkingEnabled = thinkingEnabled,
+                            onStreamingToggle = onStreamingToggle,
+                            onThinkingToggle = onThinkingToggle,
+                            onModelSelect = onModelSelect,
+                            onModeSelect = onModeSelect,
                             onEnhanceClick = onEnhanceClick,
                             onFileContextClick = onFileContextClick,
                             onFileContextRemove = onFileContextRemove,
@@ -289,6 +358,10 @@ fun ComposeChatPanel(
                             onMentionQuery = onMentionQuery,
                             onMentionSelect = onMentionSelect,
                             onMentionDismiss = onMentionDismiss,
+                            inputHistory = viewModel.inputHistory,
+                            onAddToHistory = { viewModel.addToHistory(it) },
+                            statusPanelVisible = statusPanelVisible,
+                            onStatusPanelToggle = { viewModel.statusPanelVisible = !viewModel.statusPanelVisible },
                         )
                     }
                 }

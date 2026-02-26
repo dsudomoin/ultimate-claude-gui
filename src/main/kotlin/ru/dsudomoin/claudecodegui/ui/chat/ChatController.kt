@@ -27,6 +27,7 @@ import ru.dsudomoin.claudecodegui.core.model.Role
 import ru.dsudomoin.claudecodegui.core.model.StatusTracker
 import ru.dsudomoin.claudecodegui.core.model.StreamEvent
 import ru.dsudomoin.claudecodegui.core.model.ToolSummaryExtractor
+import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.core.session.SessionManager
 import ru.dsudomoin.claudecodegui.provider.claude.ClaudeProvider
 import ru.dsudomoin.claudecodegui.service.SettingsService
@@ -59,9 +60,21 @@ class ChatController(
 
     companion object {
         private val log = Logger.getInstance(ChatController::class.java)
+        private val URL_PATTERN = Regex("https?://\\S+")
     }
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    /** EDT dispatcher — avoids dependency on kotlinx-coroutines-swing (classloader conflicts). */
+    private val edtDispatcher = object : CoroutineDispatcher() {
+        override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+            javax.swing.SwingUtilities.invokeLater(block)
+        }
+    }
+
+    /**
+     * Scope runs on EDT by default — all viewModel updates and IntelliJ API calls are safe.
+     * Heavy IO operations must be explicitly wrapped in withContext(Dispatchers.IO).
+     */
+    private val scope = CoroutineScope(SupervisorJob() + edtDispatcher)
     private var currentJob: Job? = null
 
     private val sessionManager = SessionManager.getInstance(project)
@@ -87,7 +100,8 @@ class ChatController(
 
     private var questionResultCallback: ((JsonObject?) -> Unit)? = null
     private var questionOriginalJson: JsonArray? = null
-    private var planResultCallback: ((Boolean) -> Unit)? = null
+    enum class PlanResult { APPROVED, APPROVED_COMPACT, DENIED }
+    private var planResultCallback: ((PlanResult) -> Unit)? = null
     private var approvalResultCallback: ((Boolean) -> Unit)? = null
 
     private val provider = ClaudeProvider().apply {
@@ -96,6 +110,9 @@ class ChatController(
     private val messages = mutableListOf<Message>()
     private val statusTracker = StatusTracker()
 
+    /** Convenience: switch to IO for heavy operations. */
+    private suspend fun <T> onIO(block: suspend () -> T): T = withContext(Dispatchers.IO) { block() }
+
     init {
         // Check setup status on launch
         scope.launch { checkSetup() }
@@ -103,22 +120,27 @@ class ChatController(
         // Preload slash commands from SDK in background
         if (!SlashCommandRegistry.isLoaded) {
             scope.launch {
-                val commands = provider.fetchSlashCommands()
+                val commands = onIO { provider.fetchSlashCommands() }
                 if (commands.isNotEmpty()) {
                     SlashCommandRegistry.updateSdkCommands(commands)
                 }
             }
         }
+
+        // Check for SDK updates in background
+        scope.launch {
+            checkSdkUpdate()
+        }
     }
 
     private suspend fun checkSetup() {
-        val status = SetupChecker.check()
+        val status = onIO { SetupChecker.check() }
 
         // If detected Node is wrong version, try to find compatible LTS
         if (status.node.state == NodeState.WRONG_VERSION) {
-            val compatiblePath = NodeDetector.findCompatibleLtsNode()
+            val compatiblePath = onIO { NodeDetector.findCompatibleLtsNode() }
             if (compatiblePath != null) {
-                val version = NodeDetector.detectVersion(compatiblePath)
+                val version = onIO { NodeDetector.detectVersion(compatiblePath) }
                 if (version != null && NodeDetector.isCompatibleVersion(version)) {
                     // Auto-save compatible Node path
                     try {
@@ -127,7 +149,8 @@ class ChatController(
                         log.info("Auto-selected compatible Node.js: $compatiblePath ($version)")
                     } catch (_: Exception) { }
                     // Re-check with the new path
-                    viewModel.setupStatus = SetupChecker.check()
+                    val rechecked = onIO { SetupChecker.check() }
+                    viewModel.setupStatus = rechecked
                     return
                 }
             }
@@ -136,12 +159,47 @@ class ChatController(
         viewModel.setupStatus = status
     }
 
+    private suspend fun checkSdkUpdate() {
+        try {
+            val currentVersion = onIO { BridgeManager.detectSdkVersion() }
+            viewModel.sdkCurrentVersion = currentVersion
+
+            if (currentVersion == null) return
+
+            val latestVersion = onIO { BridgeManager.checkLatestSdkVersion() }
+            viewModel.sdkLatestVersion = latestVersion
+            viewModel.sdkUpdateAvailable = latestVersion != null && latestVersion != currentVersion
+        } catch (e: Exception) {
+            log.warn("SDK update check failed: ${e.message}")
+        }
+    }
+
+    fun updateSdk() {
+        scope.launch {
+            viewModel.sdkUpdating = true
+            viewModel.sdkUpdateError = null
+            try {
+                onIO { BridgeManager.updateSdk() }
+                val newVersion = onIO { BridgeManager.detectSdkVersion() }
+                viewModel.sdkCurrentVersion = newVersion
+                viewModel.sdkUpdateAvailable = false
+                viewModel.sdkLatestVersion = newVersion
+                log.info("SDK updated to $newVersion")
+            } catch (e: Exception) {
+                log.error("SDK update failed", e)
+                viewModel.sdkUpdateError = e.message ?: "Unknown error"
+            } finally {
+                viewModel.sdkUpdating = false
+            }
+        }
+    }
+
     fun installSdk() {
         scope.launch {
             viewModel.setupInstalling = true
             viewModel.setupError = null
             try {
-                val ready = BridgeManager.ensureReady()
+                val ready = onIO { BridgeManager.ensureReady() }
                 if (ready) {
                     log.info("SDK installed successfully")
                     checkSetup()
@@ -179,27 +237,26 @@ class ChatController(
                         ProcessBuilder("fnm", "install", "--lts")
                     }
                     status?.node?.brewAvailable == true -> {
-                        // node@22 is keg-only, so also link it
                         ProcessBuilder("bash", "-lc",
                             "brew install node@22 && brew link --overwrite --force node@22 2>/dev/null; true")
                     }
                     else -> {
-                        // No package manager — open download page
                         com.intellij.ide.BrowserUtil.browse("https://nodejs.org")
                         viewModel.setupInstalling = false
                         return@launch
                     }
                 }
 
-                process.redirectErrorStream(true)
-                val proc = process.start()
-                val output = proc.inputStream.bufferedReader().readText()
-                val exitCode = proc.waitFor()
+                val (output, exitCode) = onIO {
+                    process.redirectErrorStream(true)
+                    val proc = process.start()
+                    val out = proc.inputStream.bufferedReader().readText()
+                    out to proc.waitFor()
+                }
 
                 if (exitCode == 0) {
                     log.info("Node LTS installed via version manager")
-                    // Auto-find and save the new Node path
-                    val newPath = NodeDetector.findCompatibleLtsNode()
+                    val newPath = onIO { NodeDetector.findCompatibleLtsNode() }
                     if (newPath != null) {
                         try {
                             SettingsService.getInstance().state.nodePath = newPath
@@ -208,9 +265,10 @@ class ChatController(
                     }
                     checkSetup()
                 } else {
-                    viewModel.setupError = output.lines().takeLast(3).joinToString("\n").ifBlank {
+                    val errorMsg = output.lines().takeLast(3).joinToString("\n").ifBlank {
                         "Node installation failed (exit code $exitCode)"
                     }
+                    viewModel.setupError = errorMsg
                 }
             } catch (e: Exception) {
                 log.error("Node installation failed", e)
@@ -225,6 +283,7 @@ class ChatController(
         scope.launch {
             viewModel.setupInstalling = true
             viewModel.setupError = null
+            var process: Process? = null
             try {
                 val claudePath = viewModel.setupStatus?.claudeCliPath
                 if (claudePath == null) {
@@ -233,21 +292,58 @@ class ChatController(
                 }
 
                 log.info("Running claude login: $claudePath")
-                val process = ProcessBuilder(claudePath, "login")
-                    .redirectErrorStream(true)
-                    .start()
-                val exitCode = process.waitFor()
+                val outputLines = mutableListOf<String>()
+                val exitCode = onIO {
+                    val p = ProcessBuilder(claudePath, "login")
+                        .redirectErrorStream(true)
+                        .start()
+                    process = p
+
+                    // Read stdout line-by-line (non-blocking relative to EOF)
+                    // and open any OAuth URL in the browser
+                    val reader = p.inputStream.bufferedReader()
+                    val readerJob = launch(Dispatchers.IO) {
+                        try {
+                            reader.forEachLine { line ->
+                                outputLines.add(line)
+                                log.info("claude login: $line")
+                                // Open OAuth URL in the browser if present
+                                val url = URL_PATTERN.find(line)?.value
+                                if (url != null) {
+                                    log.info("Opening login URL: $url")
+                                    com.intellij.ide.BrowserUtil.browse(url)
+                                }
+                            }
+                        } catch (_: java.io.IOException) {
+                            // stream closed
+                        }
+                    }
+
+                    // Wait with timeout (3 minutes for OAuth flow)
+                    val finished = p.waitFor(180, java.util.concurrent.TimeUnit.SECONDS)
+                    if (!finished) {
+                        p.destroyForcibly()
+                        readerJob.cancel()
+                        return@onIO -1
+                    }
+                    readerJob.join()
+                    p.exitValue()
+                }
 
                 if (exitCode == 0) {
                     log.info("Login successful")
-                    // Clear cached credentials to force re-read
                     try { ru.dsudomoin.claudecodegui.service.OAuthCredentialService.getInstance().clearCache() }
                     catch (_: Exception) { }
                     checkSetup()
+                } else if (exitCode == -1) {
+                    viewModel.setupError = UcuBundle.message("setup.loginTimeout")
                 } else {
-                    val output = process.inputStream.bufferedReader().readText().trim()
-                    viewModel.setupError = output.ifBlank { "Login failed (exit code $exitCode)" }
+                    val errorMsg = outputLines.joinToString("\n").ifBlank { "Login failed (exit code $exitCode)" }
+                    viewModel.setupError = errorMsg
                 }
+            } catch (e: CancellationException) {
+                process?.destroyForcibly()
+                throw e
             } catch (e: Exception) {
                 log.error("Login failed", e)
                 viewModel.setupError = e.message ?: "Unknown error"
@@ -302,14 +398,21 @@ class ChatController(
     fun approvePlan() {
         viewModel.planPanelVisible = false
         viewModel.planMarkdown = ""
-        planResultCallback?.invoke(true)
+        planResultCallback?.invoke(PlanResult.APPROVED)
+        planResultCallback = null
+    }
+
+    fun approvePlanAndCompact() {
+        viewModel.planPanelVisible = false
+        viewModel.planMarkdown = ""
+        planResultCallback?.invoke(PlanResult.APPROVED_COMPACT)
         planResultCallback = null
     }
 
     fun denyPlan() {
         viewModel.planPanelVisible = false
         viewModel.planMarkdown = ""
-        planResultCallback?.invoke(false)
+        planResultCallback?.invoke(PlanResult.DENIED)
         planResultCallback = null
     }
 
@@ -424,6 +527,7 @@ class ChatController(
         syncMessagesToViewModel()
         viewModel.requestScrollToBottom()
 
+
         val thinkingText = StringBuilder()
         val responseText = StringBuilder()
         var thinkingCollapsed = false
@@ -434,6 +538,7 @@ class ChatController(
         var planModeStartOffset = 0
         val planTextAccumulator = StringBuilder()  // direct accumulator for plan text
         var pendingPlanMarkdown: String? = null  // plan text prepared by PlanModeExit
+        var compactAfterResponse = false  // set when user approves plan with compact
         var hasError = false
 
         val settings = SettingsService.getInstance()
@@ -471,7 +576,8 @@ class ChatController(
                                 return@collect
                             }
                             thinkingText.append(event.text)
-                            viewModel.streamingThinkingText = thinkingText.toString()
+                            val text = thinkingText.toString()
+                            viewModel.streamingThinkingText = text
                             log.info("ThinkingDelta: total=${thinkingText.length} chars")
                         }
 
@@ -483,8 +589,12 @@ class ChatController(
                             responseText.append(event.text)
                             if (inPlanMode) {
                                 planTextAccumulator.append(event.text)
+                                if (planTextAccumulator.length <= 200 || planTextAccumulator.length % 500 == 0) {
+                                    log.info("TextDelta in planMode: accumulatorLen=${planTextAccumulator.length}, delta='${event.text.take(80)}'")
+                                }
                             } else {
-                                viewModel.streamingResponseText = responseText.toString()
+                                val text = responseText.toString()
+                                viewModel.streamingResponseText = text
                                 if (toolUseBlocks.isNotEmpty()) {
                                     rebuildStreamingContentFlow(responseText, toolUseBlocks, toolResults, textCheckpoints)
                                 }
@@ -531,13 +641,17 @@ class ChatController(
                             toolUseBlocks.add(toolBlock)
                             textCheckpoints.add(responseText.length)
                             trackToolUseForStatus(event.id, event.name, event.input)
+                            syncStatusToViewModel()
                             rebuildStreamingContentFlow(responseText, toolUseBlocks, toolResults, textCheckpoints)
                             viewModel.requestScrollToBottom()
                         }
 
                         is StreamEvent.ToolResult -> {
+                            val toolName = toolUseBlocks.find { it.id == event.id }?.name ?: "?"
+                            log.info("ToolResult: id=${event.id}, tool=$toolName, isError=${event.isError}, contentLen=${event.content.length}, preview='${event.content.take(200)}'")
                             toolResults[event.id] = event.content to event.isError
                             trackToolResultForStatus(event.id, event.isError)
+                            syncStatusToViewModel()
                             rebuildStreamingContentFlow(responseText, toolUseBlocks, toolResults, textCheckpoints)
                             viewModel.requestScrollToBottom()
                         }
@@ -560,7 +674,8 @@ class ChatController(
                                 responseText.clear()
                                 responseText.append(event.text)
                                 if (!inPlanMode) {
-                                    viewModel.streamingResponseText = responseText.toString()
+                                    val text = responseText.toString()
+                                    viewModel.streamingResponseText = text
                                     if (toolUseBlocks.isNotEmpty()) {
                                         rebuildStreamingContentFlow(responseText, toolUseBlocks, toolResults, textCheckpoints)
                                     }
@@ -573,7 +688,8 @@ class ChatController(
                             if (event.text.isNotEmpty()) {
                                 thinkingText.clear()
                                 thinkingText.append(event.text)
-                                viewModel.streamingThinkingText = thinkingText.toString()
+                                val text = thinkingText.toString()
+                                viewModel.streamingThinkingText = text
                             }
                         }
 
@@ -675,21 +791,27 @@ class ChatController(
                                     viewModel.requestScrollToBottom()
 
                                     // Show plan approval panel and wait
-                                    val deferred = CompletableDeferred<Boolean>()
-                                    planResultCallback = { approved -> deferred.complete(approved) }
+                                    val deferred = CompletableDeferred<PlanResult>()
+                                    planResultCallback = { result -> deferred.complete(result) }
                                     viewModel.planMarkdown = planMarkdown
                                     viewModel.planPanelVisible = true
-                                    val allowed = deferred.await()
+                                    val planResult = deferred.await()
 
-                                    if (allowed) {
-                                        provider.sendPermissionResponse(true)
-                                    } else {
-                                        provider.sendPermissionResponse(false, "User rejected the plan")
+                                    when (planResult) {
+                                        PlanResult.APPROVED -> {
+                                            provider.sendPermissionResponse(true)
+                                        }
+                                        PlanResult.APPROVED_COMPACT -> {
+                                            provider.sendPermissionResponse(true)
+                                            compactAfterResponse = true
+                                        }
+                                        PlanResult.DENIED -> {
+                                            provider.sendPermissionResponse(false, "User rejected the plan")
+                                        }
                                     }
 
                                     // Prepare for continued streaming
                                     messages.add(Message.assistant(""))
-                                    syncMessagesToViewModel()
                                     thinkingText.clear()
                                     responseText.clear()
                                     thinkingCollapsed = false
@@ -697,6 +819,7 @@ class ChatController(
                                     textCheckpoints.clear()
                                     planModeStartOffset = 0
                                     planTextAccumulator.clear()
+                                    syncMessagesToViewModel()
                                     viewModel.streamingContentFlow = emptyList()
                                 } catch (e: Exception) {
                                     log.error("ExitPlanMode handler failed", e)
@@ -715,6 +838,12 @@ class ChatController(
 
                         else -> { /* ignore other events */ }
                     }
+                }
+
+                // After streaming completes, send /compact if user chose "Approve & Compact"
+                if (compactAfterResponse) {
+                    compactAfterResponse = false
+                    doSendMessage("/compact")
                 }
             } catch (_: CancellationException) {
                 if (responseText.isNotBlank() || thinkingText.isNotBlank() || toolUseBlocks.isNotEmpty()) {
@@ -874,6 +1003,10 @@ class ChatController(
         viewModel.questionPanelVisible = true
     }
 
+    /**
+     * Tracks tool use in status tracker. Does NOT update viewModel —
+     * caller must sync viewModel on EDT via [syncStatusToViewModel].
+     */
     private fun trackToolUseForStatus(id: String, name: String, input: JsonObject) {
         val lower = name.lowercase()
         when {
@@ -891,7 +1024,6 @@ class ChatController(
                     TodoItem(content, status)
                 }
                 statusTracker.updateTodos(items)
-                viewModel.todos = items
             }
             lower in setOf("edit", "edit_file", "replace_string") -> {
                 val filePath = input["file_path"]?.jsonPrimitive?.contentOrNull
@@ -901,7 +1033,6 @@ class ChatController(
                 val newString = input["new_string"]?.jsonPrimitive?.contentOrNull
                     ?: input["new_str"]?.jsonPrimitive?.contentOrNull ?: ""
                 statusTracker.trackFileChange(name, filePath, oldString, newString)
-                viewModel.fileChanges = statusTracker.currentFileChanges
             }
             lower in setOf("write", "write_to_file", "create_file") -> {
                 val filePath = input["file_path"]?.jsonPrimitive?.contentOrNull
@@ -910,7 +1041,6 @@ class ChatController(
                     ?: input["file_text"]?.jsonPrimitive?.contentOrNull ?: ""
                 val isNew = !File(filePath).exists()
                 statusTracker.trackFileWrite(filePath, content, isNew)
-                viewModel.fileChanges = statusTracker.currentFileChanges
             }
             lower == "task" -> {
                 val type = input["subagent_type"]?.jsonPrimitive?.contentOrNull
@@ -918,13 +1048,22 @@ class ChatController(
                 val description = input["description"]?.jsonPrimitive?.contentOrNull
                     ?: input["prompt"]?.jsonPrimitive?.contentOrNull?.take(80) ?: ""
                 statusTracker.trackSubagent(id, type, description)
-                viewModel.agents = statusTracker.currentSubagents
             }
         }
     }
 
+    /**
+     * Tracks tool result in status tracker. Does NOT update viewModel —
+     * caller must sync viewModel on EDT via [syncStatusToViewModel].
+     */
     private fun trackToolResultForStatus(id: String, isError: Boolean) {
         statusTracker.completeSubagent(id, isError)
+    }
+
+    /** Syncs status tracker state to viewModel. Must be called on EDT. */
+    private fun syncStatusToViewModel() {
+        viewModel.todos = statusTracker.currentTodos
+        viewModel.fileChanges = statusTracker.currentFileChanges
         viewModel.agents = statusTracker.currentSubagents
     }
 
@@ -1094,6 +1233,12 @@ class ChatController(
             if (content != null && content.isNotBlank()) {
                 val filePath = ToolSummaryExtractor.extractFilePath(input)
                 return ExpandableContent.Code(content, filePath)
+            }
+        }
+        // Read tools → markdown content from result
+        if (lower in setOf("read", "read_file")) {
+            if (resultContent?.isNotBlank() == true) {
+                return ExpandableContent.Markdown(resultContent)
             }
         }
         // Bash tools → command from input + result output

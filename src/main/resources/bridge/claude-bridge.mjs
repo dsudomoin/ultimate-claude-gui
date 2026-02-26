@@ -168,10 +168,10 @@ async function main() {
 
       const opts = {
         cwd,
-        executable: process.execPath,
+        executable: 'node',
         env: cleanEnv,
         permissionMode: 'default',
-        maxTurns: 0,
+        maxTurns: 1,
         canUseTool: async () => ({ behavior: 'deny', message: 'Config loading only' }),
       };
       // SDK uses its built-in cli.js — avoids Windows .cmd spawn issues
@@ -222,7 +222,7 @@ async function main() {
     }
     const options = {
       cwd,
-      executable: process.execPath,
+      executable: 'node',
       env: sendEnv,
       maxTurns,
       permissionMode,
@@ -239,7 +239,7 @@ async function main() {
     // SDK uses its built-in cli.js — avoids Windows .cmd spawn issues
     if (model) options.model = model;
     if (sessionId) options.resume = sessionId;
-    if (systemPrompt) options.appendSystemPrompt = systemPrompt;
+    if (systemPrompt) options.systemPrompt = { type: 'preset', preset: 'claude_code', append: systemPrompt };
 
     // Permission callback — emit request to plugin, wait for response on stdin
     options.canUseTool = async (toolName, toolInput, callbackOptions) => {
@@ -382,9 +382,14 @@ async function main() {
                   input: block.input,
                 });
               } else if (block.type === 'tool_result') {
+                const resultText = typeof block.content === 'string'
+                  ? block.content
+                  : Array.isArray(block.content)
+                    ? block.content.filter(b => b.type === 'text').map(b => b.text).join('\n')
+                    : '';
                 emit('TOOL_RESULT', {
                   id: block.tool_use_id,
-                  content: block.content,
+                  content: resultText,
                   isError: block.is_error ?? false,
                 });
               }
@@ -420,9 +425,12 @@ async function main() {
         }
 
         case 'result': {
-          process.stderr.write(`[BRIDGE_RESULT] is_error=${msg.is_error} session_id=${msg.session_id} error=${msg.error}\n`);
+          process.stderr.write(`[BRIDGE_RESULT] is_error=${msg.is_error} session_id=${msg.session_id} errors=${msg.errors}\n`);
           if (msg.is_error) {
-            emit('ERROR', msg.error ?? 'Unknown SDK error');
+            const errText = Array.isArray(msg.errors) && msg.errors.length > 0
+              ? msg.errors.join(' | ')
+              : 'Unknown SDK error';
+            emit('ERROR', errText);
           }
           if (msg.session_id) {
             emit('SESSION_ID', msg.session_id);

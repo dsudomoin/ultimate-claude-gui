@@ -30,7 +30,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.loadImageBitmap
+import androidx.compose.ui.graphics.toComposeImageBitmap
+import javax.imageio.ImageIO
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -44,8 +45,11 @@ import ru.dsudomoin.claudecodegui.core.model.ContentBlock
 import ru.dsudomoin.claudecodegui.core.model.Message
 import ru.dsudomoin.claudecodegui.core.model.Role
 import ru.dsudomoin.claudecodegui.core.model.ToolSummaryExtractor
+import com.intellij.openapi.diagnostic.Logger
 import ru.dsudomoin.claudecodegui.ui.compose.common.ComposeMarkdownContent
 import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
+
+private val log = Logger.getInstance("ComposeMessageBubble")
 
 /**
  * State holder for streaming message data.
@@ -172,9 +176,7 @@ private fun UserBubble(
                         is ContentBlock.Image -> {
                             val bitmap = remember(block.source) {
                                 try {
-                                    java.io.File(block.source).inputStream().buffered().use {
-                                        loadImageBitmap(it)
-                                    }
+                                    ImageIO.read(java.io.File(block.source))?.toComposeImageBitmap()
                                 } catch (_: Exception) { null }
                             }
                             if (bitmap != null) {
@@ -272,6 +274,17 @@ private fun StreamingAssistantContent(
 
     // Content flow: interleaved text and tool blocks
     if (contentFlow.isNotEmpty()) {
+        LaunchedEffect(contentFlow.size) {
+            log.info("StreamingAssistantContent: ${contentFlow.size} flow items")
+            contentFlow.forEachIndexed { idx, item ->
+                when (item) {
+                    is ContentFlowItem.TextSegment -> log.info("  [$idx] TextSegment len=${item.text.length}, blank=${item.text.isBlank()}")
+                    is ContentFlowItem.ToolBlock -> log.info("  [$idx] ToolBlock ${item.data.toolName}")
+                    is ContentFlowItem.ToolGroup -> log.info("  [$idx] ToolGroup ${item.data.category}")
+                    is ContentFlowItem.ApprovalSlot -> log.info("  [$idx] ApprovalSlot")
+                }
+            }
+        }
         contentFlow.forEach { item ->
             when (item) {
                 is ContentFlowItem.TextSegment -> {
@@ -331,7 +344,18 @@ private fun FinishedAssistantContent(
 
     // Build render items with tool grouping
     val renderItems = remember(message) {
-        buildFinishedRenderItems(message.content, toolResultMap)
+        buildFinishedRenderItems(message.content, toolResultMap).also { items ->
+            log.info("FinishedAssistantContent: ${items.size} renderItems from ${message.content.size} contentBlocks")
+            items.forEachIndexed { idx, item ->
+                when (item) {
+                    is FinishedRenderItem.MarkdownText -> log.info("  [$idx] MarkdownText len=${item.text.length}, preview='${item.text.take(120)}'")
+                    is FinishedRenderItem.SingleTool -> log.info("  [$idx] SingleTool ${item.data.toolName} - ${item.data.summary}")
+                    is FinishedRenderItem.ToolGroupItem -> log.info("  [$idx] ToolGroup ${item.data.category} x${item.data.items.size}")
+                    is FinishedRenderItem.CodeItem -> log.info("  [$idx] CodeItem lang=${item.language} len=${item.code.length}")
+                    is FinishedRenderItem.ImageItem -> log.info("  [$idx] ImageItem ${item.source}")
+                }
+            }
+        }
     }
 
     renderItems.forEach { item ->
@@ -345,9 +369,7 @@ private fun FinishedAssistantContent(
             is FinishedRenderItem.ImageItem -> {
                 val bitmap = remember(item.source) {
                     try {
-                        java.io.File(item.source).inputStream().buffered().use {
-                            loadImageBitmap(it)
-                        }
+                        ImageIO.read(java.io.File(item.source))?.toComposeImageBitmap()
                     } catch (_: Exception) { null }
                 }
                 if (bitmap != null) {
@@ -499,6 +521,11 @@ private fun buildFinishedExpandable(
         if (content != null && content.isNotBlank()) {
             val filePath = ToolSummaryExtractor.extractFilePath(input)
             return ExpandableContent.Code(content, filePath)
+        }
+    }
+    if (lower in setOf("read", "read_file")) {
+        if (resultContent?.isNotBlank() == true) {
+            return ExpandableContent.Markdown(resultContent)
         }
     }
     if (lower in setOf("bash", "run_terminal_cmd", "execute_command", "executecommand", "shell_command")) {

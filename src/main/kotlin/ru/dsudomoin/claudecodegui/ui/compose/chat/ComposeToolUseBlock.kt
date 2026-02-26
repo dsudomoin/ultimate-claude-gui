@@ -50,7 +50,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.verticalScroll
 import org.jetbrains.jewel.ui.component.Text
+import ru.dsudomoin.claudecodegui.ui.compose.common.ComposeMarkdownContent
 import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
 
 /**
@@ -70,6 +73,9 @@ sealed interface ExpandableContent {
 
     /** Syntax-highlighted code (write/create tool content). */
     data class Code(val content: String, val filePath: String? = null) : ExpandableContent
+
+    /** Markdown content (read tool results). */
+    data class Markdown(val text: String) : ExpandableContent
 }
 
 /**
@@ -103,7 +109,8 @@ fun ComposeToolUseBlock(
     val shape = RoundedCornerShape(16.dp)
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
-    var expanded by remember { mutableStateOf(false) }
+    val isReadTool = data.toolName.lowercase() in setOf("read", "read_file")
+    var expanded by remember { mutableStateOf(isReadTool && data.expandable != null) }
     val hasExpandable = data.expandable != null
 
     Column(
@@ -203,8 +210,8 @@ fun ComposeToolUseBlock(
                 Spacer(Modifier.width(4.dp))
             }
 
-            // Action buttons (show diff / revert) — visible on hover for completed edit/write tools
-            if (isHovered && data.status == ToolStatus.COMPLETED && data.expandable != null) {
+            // Action buttons (show diff / revert) — visible on hover for completed edit/write tools (not for read)
+            if (isHovered && data.status == ToolStatus.COMPLETED && data.expandable != null && !isReadTool) {
                 if (onShowDiff != null && (data.expandable is ExpandableContent.Diff || data.expandable is ExpandableContent.Code)) {
                     ToolActionButton(
                         icon = "\u2194",
@@ -276,6 +283,18 @@ fun ComposeToolUseBlock(
                                 .horizontalScroll(plainScrollState)
                                 .padding(horizontal = 12.dp, vertical = 8.dp),
                         )
+                    }
+                    is ExpandableContent.Markdown -> {
+                        val mdScrollState = rememberScrollState()
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 400.dp)
+                                .verticalScroll(mdScrollState)
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                        ) {
+                            ComposeMarkdownContent(markdown = content.text)
+                        }
                     }
                     null -> {}
                 }

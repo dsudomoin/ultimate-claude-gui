@@ -41,7 +41,6 @@ dependencies {
 
     // Kotlin Coroutines — provided by IDE, must NOT be bundled (classloader conflict with Compose runtime)
     compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
-    compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.10.2")
 
     // Serialization — provided by IDE
     compileOnly("org.jetbrains.kotlinx:kotlinx-serialization-json:1.10.0")
