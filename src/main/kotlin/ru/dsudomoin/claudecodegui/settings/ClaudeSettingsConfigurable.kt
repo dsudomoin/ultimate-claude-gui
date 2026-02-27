@@ -50,7 +50,7 @@ class ClaudeSettingsConfigurable : Configurable {
         }
     }
 
-    override fun getDisplayName() = "Ultimate Claude UI"
+    override fun getDisplayName() = "Ultimate Claude GUI"
 
     override fun createComponent(): JComponent {
         baseUrlField = JBTextField()

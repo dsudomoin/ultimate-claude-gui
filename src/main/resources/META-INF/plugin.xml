@@ -1,10 +1,10 @@
 <idea-plugin>
     <id>ru.dsudomoin.claude-code-gui</id>
-    <name>Ultimate Claude UI</name>
+    <name>Ultimate Claude GUI</name>
     <vendor url="https://github.com/dsudomoin">dsudomoin</vendor>
     <description><![CDATA[
-        Native IntelliJ plugin for AI-powered coding with Claude and Codex.
-        Direct HTTP API calls, no JCEF/Node.js — pure Kotlin + Swing.
+        Native IntelliJ plugin for AI-powered coding with Claude.
+        Compose/Jewel UI, communicates via Node.js bridge wrapping @anthropic-ai/claude-code SDK.
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
@@ -43,7 +43,7 @@
         <applicationConfigurable parentId="tools"
                                  instance="ru.dsudomoin.claudecodegui.settings.ClaudeSettingsConfigurable"
                                  id="ru.dsudomoin.claudecodegui.settings"
-                                 displayName="Ultimate Claude UI"/>
+                                 displayName="Ultimate Claude GUI"/>
         <applicationConfigurable parentId="ru.dsudomoin.claudecodegui.settings"
                                  instance="ru.dsudomoin.claudecodegui.settings.AppearanceConfigurable"
                                  id="ru.dsudomoin.claudecodegui.settings.appearance"
