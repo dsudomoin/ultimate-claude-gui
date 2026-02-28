@@ -81,8 +81,12 @@ fun ComposeInputToolbar(
     isSending: Boolean,
     streamingEnabled: Boolean,
     thinkingEnabled: Boolean,
+    effort: String = "high",
+    betaContext1m: Boolean = false,
     onStreamingToggle: () -> Unit,
     onThinkingToggle: () -> Unit,
+    onEffortChange: (String) -> Unit = {},
+    onBetaContextToggle: () -> Unit = {},
     onModelSelect: (String) -> Unit,
     onModeSelect: (String) -> Unit,
     onEnhanceClick: () -> Unit,
@@ -116,8 +120,12 @@ fun ComposeInputToolbar(
                     SettingsPopup(
                         streamingEnabled = streamingEnabled,
                         thinkingEnabled = thinkingEnabled,
+                        effort = effort,
+                        betaContext1m = betaContext1m,
                         onStreamingToggle = onStreamingToggle,
                         onThinkingToggle = onThinkingToggle,
+                        onEffortChange = onEffortChange,
+                        onBetaContextToggle = onBetaContextToggle,
                         onDismiss = { showSettingsPopup = false },
                     )
                 }
@@ -346,11 +354,23 @@ private fun SelectionOptionRow(
 private fun SettingsPopup(
     streamingEnabled: Boolean,
     thinkingEnabled: Boolean,
+    effort: String,
+    betaContext1m: Boolean,
     onStreamingToggle: () -> Unit,
     onThinkingToggle: () -> Unit,
+    onEffortChange: (String) -> Unit,
+    onBetaContextToggle: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val colors = LocalClaudeColors.current
+    val effortLevels = listOf("low", "medium", "high", "max")
+    val effortLabel = when (effort) {
+        "low" -> UcuBundle.message("settings.effort.low")
+        "medium" -> UcuBundle.message("settings.effort.medium")
+        "high" -> UcuBundle.message("settings.effort.high")
+        "max" -> UcuBundle.message("settings.effort.max")
+        else -> effort
+    }
 
     Popup(
         alignment = Alignment.BottomStart,
@@ -359,7 +379,7 @@ private fun SettingsPopup(
     ) {
         Column(
             modifier = Modifier
-                .width(240.dp)
+                .width(260.dp)
                 .background(colors.surfaceSecondary, RoundedCornerShape(8.dp))
                 .border(1.dp, colors.borderNormal, RoundedCornerShape(8.dp))
                 .padding(6.dp),
@@ -376,6 +396,22 @@ private fun SettingsPopup(
                 label = UcuBundle.message("settings.thinking"),
                 checked = thinkingEnabled,
                 onToggle = onThinkingToggle,
+            )
+            SettingsCycleRow(
+                icon = "\uD83C\uDFAF",
+                label = UcuBundle.message("settings.effort"),
+                value = effortLabel,
+                onClick = {
+                    val idx = effortLevels.indexOf(effort)
+                    val next = effortLevels[(idx + 1) % effortLevels.size]
+                    onEffortChange(next)
+                },
+            )
+            SettingsToggleRow(
+                icon = "\uD83D\uDCC4",
+                label = UcuBundle.message("settings.betaContext"),
+                checked = betaContext1m,
+                onToggle = onBetaContextToggle,
             )
         }
     }
@@ -418,6 +454,53 @@ private fun SettingsToggleRow(
         )
         Spacer(Modifier.width(10.dp))
         ToggleSwitch(checked = checked)
+    }
+}
+
+@Composable
+private fun SettingsCycleRow(
+    icon: String,
+    label: String,
+    value: String,
+    onClick: () -> Unit,
+) {
+    val colors = LocalClaudeColors.current
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (isHovered) colors.hoverOverlay else Color.Transparent)
+            .hoverable(interactionSource)
+            .clickable(onClick = onClick)
+            .pointerHoverIcon(PointerIcon.Hand)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+    ) {
+        Text(
+            text = icon,
+            style = TextStyle(fontSize = 14.sp),
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = label,
+            style = TextStyle(
+                fontSize = 13.sp,
+                color = colors.textPrimary,
+            ),
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = value,
+            style = TextStyle(
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = colors.accent,
+            ),
+        )
     }
 }
 

@@ -92,6 +92,8 @@ data class ToolUseData(
     val diffDeletions: Int = 0,
     val isFileLink: Boolean = false,
     val filePath: String? = null,
+    /** SDK task ID — present for subagent/task tool uses; enables "Stop task" action. */
+    val taskId: String? = null,
 )
 
 /**
@@ -103,6 +105,7 @@ fun ComposeToolUseBlock(
     onFileClick: ((String) -> Unit)? = null,
     onShowDiff: (() -> Unit)? = null,
     onRevert: (() -> Unit)? = null,
+    onStopTask: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalClaudeColors.current
@@ -110,8 +113,10 @@ fun ComposeToolUseBlock(
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
     val isReadTool = data.toolName.lowercase() in setOf("read", "read_file")
-    var expanded by remember { mutableStateOf(isReadTool && data.expandable != null) }
     val hasExpandable = data.expandable != null
+    var expanded by remember(data.id, isReadTool, hasExpandable) {
+        mutableStateOf(isReadTool && hasExpandable)
+    }
     val statusColor = when (data.status) {
         ToolStatus.PENDING -> colors.statusWarning
         ToolStatus.COMPLETED -> colors.statusSuccess
@@ -239,6 +244,16 @@ fun ComposeToolUseBlock(
                     )
                     Spacer(Modifier.width(2.dp))
                 }
+            }
+
+            // Stop task button — for running subagent/task tool uses
+            if (onStopTask != null && data.taskId != null && data.status == ToolStatus.PENDING) {
+                ToolActionButton(
+                    icon = "\u23F9",
+                    tooltip = "Stop",
+                    onClick = onStopTask,
+                )
+                Spacer(Modifier.width(4.dp))
             }
 
             Spacer(Modifier.width(4.dp))
@@ -711,6 +726,7 @@ private fun getToolEmoji(toolName: String): String {
         lower == "task" || lower == "taskoutput" -> "\uD83D\uDCCB"
         lower == "webfetch" || lower == "websearch" -> "\uD83C\uDF10"
         lower == "todowrite" || lower.startsWith("update_plan") -> "\u2705"
+        lower in setOf("skill", "useskill", "runskill", "run_skill", "execute_skill") -> "\u2728"
         lower.startsWith("mcp__") -> "\uD83D\uDD0C"
         else -> "\u26A1"
     }

@@ -8,6 +8,7 @@ import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.project.guessProjectDir
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.content.ContentFactory
@@ -54,7 +55,7 @@ class ClaudeToolWindowFactory : ToolWindowFactory {
         ThemeManager.initialize()
         addNewTab(project, toolWindow)
 
-        toolWindow.contentManager.addContentManagerListener(object : ContentManagerListener {
+        val contentManagerListener = object : ContentManagerListener {
             override fun contentAdded(event: ContentManagerEvent) {
                 updateTabCloseableState(toolWindow)
             }
@@ -64,9 +65,13 @@ class ClaudeToolWindowFactory : ToolWindowFactory {
                 }
                 updateTabCloseableState(toolWindow)
             }
-        })
+        }
+        toolWindow.contentManager.addContentManagerListener(contentManagerListener)
+        registerProjectDispose(project) {
+            runCatching { toolWindow.contentManager.removeContentManagerListener(contentManagerListener) }
+        }
 
-        toolWindow.setTitleActions(listOf(
+        val titleActions = listOf(
             object : AnAction(UcuBundle.message("toolwindow.newChat"), UcuBundle.message("toolwindow.newChatDesc"), AllIcons.General.Add) {
                 override fun actionPerformed(e: AnActionEvent) = addNewTab(project, toolWindow)
                 override fun update(e: AnActionEvent) {
@@ -91,7 +96,8 @@ class ClaudeToolWindowFactory : ToolWindowFactory {
                     e.presentation.description = UcuBundle.message("toolwindow.settingsDesc")
                 }
             }
-        ))
+        )
+        toolWindow.setTitleActions(titleActions)
 
         val renameAction = object : AnAction(UcuBundle.message("toolwindow.rename"), UcuBundle.message("toolwindow.renameDesc"), AllIcons.Actions.Edit) {
             override fun actionPerformed(e: AnActionEvent) {
@@ -99,6 +105,10 @@ class ClaudeToolWindowFactory : ToolWindowFactory {
             }
         }
         toolWindow.setAdditionalGearActions(DefaultActionGroup(renameAction))
+        registerProjectDispose(project) {
+            runCatching { toolWindow.setTitleActions(emptyList()) }
+            runCatching { toolWindow.setAdditionalGearActions(DefaultActionGroup()) }
+        }
 
         SwingUtilities.invokeLater {
             installDoubleClickRename(project, toolWindow)
@@ -135,13 +145,21 @@ class ClaudeToolWindowFactory : ToolWindowFactory {
         if (doubleClickInstalled) return
         doubleClickInstalled = true
 
-        toolWindow.contentManager.component.addMouseListener(object : java.awt.event.MouseAdapter() {
+        val mouseListener = object : java.awt.event.MouseAdapter() {
             override fun mouseClicked(e: java.awt.event.MouseEvent) {
                 if (e.clickCount == 2) {
                     renameCurrentTab(project, toolWindow)
                 }
             }
-        })
+        }
+        toolWindow.contentManager.component.addMouseListener(mouseListener)
+        registerProjectDispose(project) {
+            runCatching { toolWindow.contentManager.component.removeMouseListener(mouseListener) }
+        }
+    }
+
+    private fun registerProjectDispose(project: Project, onDispose: () -> Unit) {
+        Disposer.register(project, Disposable { onDispose() })
     }
 
     private fun toggleHistory(project: Project, toolWindow: ToolWindow) {
@@ -166,8 +184,7 @@ class ClaudeToolWindowFactory : ToolWindowFactory {
         ) ?: return
 
         if (newTitle.isNotBlank()) {
-            content.displayName = newTitle
-            controller.customTitle = newTitle
+            controller.renameSession(newTitle)
         }
     }
 }
@@ -213,6 +230,16 @@ class ChatContainerPanel(
             settings.state.thinkingEnabled = !settings.state.thinkingEnabled
             controller.viewModel.thinkingEnabled = settings.state.thinkingEnabled
         },
+        onEffortChange = { newEffort ->
+            val settings = SettingsService.getInstance()
+            settings.state.effort = newEffort
+            controller.viewModel.effort = newEffort
+        },
+        onBetaContextToggle = {
+            val settings = SettingsService.getInstance()
+            settings.state.betaContext1m = !settings.state.betaContext1m
+            controller.viewModel.betaContext1m = settings.state.betaContext1m
+        },
         onModelSelect = { modelId -> selectModel(modelId) },
         onModeSelect = { modeId -> selectMode(modeId) },
         onEnhanceClick = { launchEnhancer() },
@@ -230,6 +257,9 @@ class ChatContainerPanel(
         onMentionDismiss = {
             controller.viewModel.mentionPopupVisible = false
             controller.viewModel.mentionSuggestions = emptyList()
+        },
+        onPromptSuggestionSelect = { suggestion ->
+            controller.applyPromptSuggestion(suggestion)
         },
         onFileClick = { path -> openFileInEditor(path) },
         onToolShowDiff = { expandable ->
@@ -266,15 +296,22 @@ class ChatContainerPanel(
                 else -> {}
             }
         },
+        onStopTask = { taskId -> controller.stopTask(taskId) },
         onStatusFileClick = { path -> openFileInEditor(path) },
         onStatusShowDiff = { summary ->
             val original = summary.operations.joinToString("\n") { it.oldString }
             val modified = summary.operations.joinToString("\n") { it.newString }
             InteractiveDiffManager.showDiff(project, summary.filePath, original, modified)
         },
-        onStatusUndoFile = { /* TODO: undo file changes */ },
-        onStatusDiscardAll = { /* TODO: discard all changes */ },
-        onStatusKeepAll = { /* TODO: keep all changes */ },
+        onStatusUndoFile = { summary ->
+            controller.undoStatusFileChange(summary)
+        },
+        onStatusDiscardAll = {
+            controller.discardAllStatusFileChanges()
+        },
+        onStatusKeepAll = {
+            controller.keepAllStatusFileChanges()
+        },
         onQueueRemove = { index -> controller.removeFromQueue(index) },
         onQuestionSubmit = { answers -> controller.submitQuestion(answers) },
         onQuestionCancel = { controller.cancelQuestion() },
@@ -283,6 +320,8 @@ class ChatContainerPanel(
         onPlanDeny = { controller.denyPlan() },
         onApprovalApprove = { controller.approvePermission() },
         onApprovalReject = { controller.rejectPermission() },
+        onElicitationSubmit = { value -> controller.submitElicitation(value) },
+        onElicitationCancel = { controller.cancelElicitation() },
         onInstallSdk = { controller.installSdk() },
         onInstallNode = { controller.installNode() },
         onLogin = { controller.runLogin() },
@@ -291,6 +330,9 @@ class ChatContainerPanel(
         onLoadSession = { sessionId -> loadHistorySession(sessionId) },
         onHistoryBack = { controller.viewModel.showingHistory = false },
         onHistoryRefresh = { refreshHistorySessions() },
+        onTitleChange = { newTitle ->
+            controller.renameSession(newTitle)
+        },
     )
 
     private val composeChatPanel = createComposeChatPanel(controller.viewModel, callbacks)
@@ -430,6 +472,7 @@ class ChatContainerPanel(
     private fun selectModel(modelId: String) {
         val settings = SettingsService.getInstance()
         settings.state.claudeModel = modelId
+        controller.setRuntimeModel(modelId)
         controller.viewModel.selectedModelId = modelId
         controller.viewModel.selectedModelName = when {
             modelId == "claude-opus-4-6-max" -> "Opus 4.6 (1M)"
@@ -443,6 +486,7 @@ class ChatContainerPanel(
     private fun selectMode(modeId: String) {
         val settings = SettingsService.getInstance()
         settings.state.permissionMode = modeId
+        controller.setRuntimePermissionMode(modeId)
         controller.viewModel.selectedModeId = modeId
         controller.viewModel.modeLabel = when (modeId) {
             "default" -> UcuBundle.message("mode.default.name")
@@ -598,6 +642,8 @@ class ChatContainerPanel(
         }
         controller.viewModel.streamingEnabled = settings.state.streamingEnabled
         controller.viewModel.thinkingEnabled = settings.state.thinkingEnabled
+        controller.viewModel.effort = settings.state.effort
+        controller.viewModel.betaContext1m = settings.state.betaContext1m
     }
 
     // ── History toggle ───────────────────────────────────────────────────────

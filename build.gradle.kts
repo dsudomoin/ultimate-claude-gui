@@ -11,7 +11,12 @@ version = providers.exec {
     commandLine("git", "describe", "--tags", "--abbrev=0")
     isIgnoreExitValue = true
 }.standardOutput.asText.map { text ->
-    text.trim().removePrefix("v").ifEmpty { "0.0.0-SNAPSHOT" }
+    val tag = text.trim().removePrefix("v")
+    if (tag.isEmpty()) "1.0-SNAPSHOT"
+    else {
+        val isCI = System.getenv("CI") != null || System.getenv("GITHUB_ACTIONS") != null
+        if (isCI) tag else "1.0-SNAPSHOT"
+    }
 }.get()
 
 repositories {

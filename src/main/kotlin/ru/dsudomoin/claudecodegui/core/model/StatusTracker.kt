@@ -75,4 +75,12 @@ class StatusTracker {
         fileChanges.clear()
         subagents.clear()
     }
+
+    fun removeFileChange(filePath: String) {
+        fileChanges.remove(filePath)
+    }
+
+    fun clearFileChanges() {
+        fileChanges.clear()
+    }
 }

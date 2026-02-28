@@ -2,6 +2,7 @@ package ru.dsudomoin.claudecodegui.core.session
 
 import com.intellij.openapi.diagnostic.Logger
 import kotlinx.serialization.json.*
+import ru.dsudomoin.claudecodegui.bridge.BridgeManager
 import ru.dsudomoin.claudecodegui.core.model.ContentBlock
 import ru.dsudomoin.claudecodegui.core.model.Message
 import ru.dsudomoin.claudecodegui.core.model.Role
@@ -80,6 +81,37 @@ object SessionStorage {
             aggregateMessages(rawMessages)
         } catch (e: Exception) {
             log.warn("Failed to load session $sessionId: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Load session messages via SDK getSessionMessages() bridge command.
+     * Falls back to null on any bridge/protocol issue so caller can use JSONL path.
+     */
+    fun loadViaSdk(projectPath: String, sessionId: String, limit: Int = 1000): List<Message>? {
+        if (!BridgeManager.isReady) return null
+
+        return try {
+            val command = buildJsonObject {
+                put("command", "getSessionMessages")
+                put("sessionId", sessionId)
+                put("dir", projectPath)
+                put("limit", limit)
+            }.toString()
+
+            val output = BridgeManager.runBridgeCommand(command)
+            val messagesJson = output["SESSION_MESSAGES"] ?: return null
+            val arr = json.parseToJsonElement(messagesJson).jsonArray
+
+            val parsed = arr.mapNotNull { element ->
+                val obj = element as? JsonObject ?: return@mapNotNull null
+                parseSessionObject(obj)
+            }
+
+            if (parsed.isEmpty()) null else aggregateMessages(parsed)
+        } catch (e: Exception) {
+            log.warn("SDK getSessionMessages failed, will use JSONL fallback: ${e.message}")
             null
         }
     }
@@ -163,6 +195,83 @@ object SessionStorage {
             log.debug("Failed to extract usage for $sessionId: ${e.message}")
         }
         return lastUsage
+    }
+
+    /**
+     * List sessions using the SDK's listSessions() function via bridge.
+     * Returns richer metadata than JSONL scanning (firstPrompt, gitBranch, cwd).
+     * Falls back to null if bridge is not available.
+     */
+    fun listSessionsViaSdk(projectPath: String, limit: Int = 50): List<SessionInfo>? {
+        if (!BridgeManager.isReady) return null
+
+        return try {
+            val command = buildJsonObject {
+                put("command", "listSessions")
+                put("dir", projectPath)
+                put("limit", limit)
+            }.toString()
+
+            val output = BridgeManager.runBridgeCommand(command)
+            val sessionsJson = output["SESSIONS"] ?: return null
+            val arr = json.parseToJsonElement(sessionsJson).jsonArray
+
+            arr.mapNotNull { elem ->
+                val obj = elem.jsonObject
+                val sessionId = obj["sessionId"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                val rawSummary = obj["summary"]?.jsonPrimitive?.contentOrNull ?: "New Chat"
+                val lastModified = obj["lastModified"]?.jsonPrimitive?.longOrNull ?: 0L
+                val customTitle = obj["customTitle"]?.jsonPrimitive?.contentOrNull
+                val rawFirstPrompt = obj["firstPrompt"]?.jsonPrimitive?.contentOrNull
+                val gitBranch = obj["gitBranch"]?.jsonPrimitive?.contentOrNull
+                val cwd = obj["cwd"]?.jsonPrimitive?.contentOrNull
+
+                // SDK metadata + local JSONL snapshot (for accurate title/count).
+                val localInfo = runCatching {
+                    val file = File(projectDir(projectPath), "$sessionId.jsonl")
+                    if (file.exists()) extractSessionInfo(file) else null
+                }.getOrNull()
+
+                // Strip enriched IDE context from summary and firstPrompt
+                val summary = stripEnrichedContext(rawSummary).trim()
+                val firstPrompt = rawFirstPrompt?.let { stripEnrichedContext(it).trim() }?.takeIf { it.isNotBlank() }
+                val localTitle = localInfo?.title
+                    ?.let { stripEnrichedContext(it).trim() }
+                    ?.takeIf { it.isNotBlank() && it != "New Chat" }
+
+                val title = when {
+                    !customTitle.isNullOrBlank() -> customTitle
+                    !localTitle.isNullOrBlank() -> localTitle
+                    summary.isNotBlank() -> summary.take(60).let {
+                        if (it.length >= 60) "${it.take(57)}..." else it
+                    }
+                    !firstPrompt.isNullOrBlank() -> firstPrompt.take(60).let {
+                        if (it.length >= 60) "${it.take(57)}..." else it
+                    }
+                    else -> "New Chat"
+                }
+
+                val messageCount = localInfo?.messageCount
+                    ?: obj["messageCount"]?.jsonPrimitive?.intOrNull
+                    ?: 0
+
+                SessionInfo(
+                    sessionId = sessionId,
+                    title = title,
+                    lastTimestamp = lastModified,
+                    messageCount = messageCount,
+                    slug = customTitle ?: localInfo?.slug,
+                    firstPrompt = firstPrompt,
+                    gitBranch = gitBranch,
+                    cwd = cwd,
+                )
+            }
+                .filter { it.messageCount > 0 }
+                .sortedByDescending { it.lastTimestamp }
+        } catch (e: Exception) {
+            log.warn("SDK listSessions failed, will use JSONL fallback: ${e.message}")
+            null
+        }
     }
 
     // ── Private helpers ──
@@ -249,35 +358,54 @@ object SessionStorage {
      */
     private fun parseCliLine(line: String): ParsedMessage? {
         val obj = json.parseToJsonElement(line).jsonObject
-        val type = obj["type"]?.jsonPrimitive?.contentOrNull ?: return null
+        return parseSessionObject(obj)
+    }
 
-        if (type != "user" && type != "assistant") return null
+    /**
+     * Parse SDK/CLI message object into ParsedMessage.
+     * Supports both JSONL line schema and getSessionMessages response schema.
+     */
+    private fun parseSessionObject(obj: JsonObject): ParsedMessage? {
+        val topType = obj["type"]?.jsonPrimitive?.contentOrNull?.lowercase()
+        val roleText = topType
+            ?: obj["role"]?.jsonPrimitive?.contentOrNull?.lowercase()
+            ?: obj["message"]?.jsonObject?.get("role")?.jsonPrimitive?.contentOrNull?.lowercase()
+            ?: return null
 
-        val role = if (type == "user") Role.USER else Role.ASSISTANT
-        val timestamp = obj["timestamp"]?.jsonPrimitive?.contentOrNull?.let {
-            try {
-                Instant.parse(it).toEpochMilli()
-            } catch (_: Exception) {
-                System.currentTimeMillis()
-            }
-        } ?: System.currentTimeMillis()
-
-        val messageObj = obj["message"]?.jsonObject ?: return null
-        val contentElement = messageObj["content"] ?: return null
-
-        // content can be a JSON array (normal) or a plain string (e.g. session continuation summary)
-        val contentArray = when (contentElement) {
-            is JsonArray -> contentElement
-            is JsonPrimitive -> {
-                val text = contentElement.contentOrNull ?: return null
-                if (text.isBlank()) return null
-                return ParsedMessage(role, listOf(ContentBlock.Text(text)), timestamp)
-            }
+        val role = when (roleText) {
+            "user" -> Role.USER
+            "assistant" -> Role.ASSISTANT
             else -> return null
         }
 
+        val messageObj = obj["message"]?.jsonObject ?: obj
+        val contentElement = messageObj["content"] ?: obj["content"] ?: return null
+
+        val timestamp = listOfNotNull(
+            obj["timestamp"]?.jsonPrimitive?.contentOrNull,
+            messageObj["timestamp"]?.jsonPrimitive?.contentOrNull,
+        ).firstNotNullOfOrNull { raw ->
+            runCatching { Instant.parse(raw).toEpochMilli() }.getOrNull()
+        } ?: System.currentTimeMillis()
+
+        val blocks = parseContentBlocks(contentElement, role)
+        if (blocks.isEmpty()) return null
+        return ParsedMessage(role, blocks, timestamp)
+    }
+
+    private fun parseContentBlocks(contentElement: JsonElement, role: Role): List<ContentBlock> {
+        val contentArray = when (contentElement) {
+            is JsonArray -> contentElement
+            is JsonPrimitive -> {
+                val text = contentElement.contentOrNull?.trim().orEmpty()
+                if (text.isBlank()) return emptyList()
+                return listOf(ContentBlock.Text(text))
+            }
+            else -> return emptyList()
+        }
+
         val blocks = contentArray.mapNotNull { block ->
-            val blockObj = block.jsonObject
+            val blockObj = block as? JsonObject ?: return@mapNotNull null
             when (blockObj["type"]?.jsonPrimitive?.contentOrNull) {
                 "text" -> {
                     val text = blockObj["text"]?.jsonPrimitive?.contentOrNull ?: ""
@@ -295,12 +423,14 @@ object SessionStorage {
                 "tool_result" -> {
                     val toolUseId = blockObj["tool_use_id"]?.jsonPrimitive?.contentOrNull ?: ""
                     val isError = blockObj["is_error"]?.jsonPrimitive?.booleanOrNull ?: false
-                    // tool_result content can be a string or array
-                    val resultContent = blockObj["content"]?.let { contentElement ->
-                        when (contentElement) {
-                            is JsonPrimitive -> contentElement.contentOrNull ?: ""
-                            is JsonArray -> contentElement.mapNotNull { el ->
-                                el.jsonObject["text"]?.jsonPrimitive?.contentOrNull
+                    val resultContent = blockObj["content"]?.let { result ->
+                        when (result) {
+                            is JsonPrimitive -> result.contentOrNull ?: ""
+                            is JsonArray -> result.mapNotNull { item ->
+                                val itemObj = item as? JsonObject ?: return@mapNotNull null
+                                if (itemObj["type"]?.jsonPrimitive?.contentOrNull == "text") {
+                                    itemObj["text"]?.jsonPrimitive?.contentOrNull
+                                } else null
                             }.joinToString("\n")
                             else -> ""
                         }
@@ -321,12 +451,19 @@ object SessionStorage {
                     } ?: ""
                     if (source.isNotBlank()) ContentBlock.Image(source) else null
                 }
+                "compact_boundary" -> {
+                    val trigger = blockObj["trigger"]?.jsonPrimitive?.contentOrNull ?: "manual"
+                    val preTokens = blockObj["preTokens"]?.jsonPrimitive?.intOrNull ?: 0
+                    ContentBlock.CompactBoundary(trigger = trigger, preTokens = preTokens)
+                }
                 else -> null
             }
         }
 
-        if (blocks.isEmpty()) return null
-        return ParsedMessage(role, blocks, timestamp)
+        if (role == Role.USER && blocks.all { it is ContentBlock.ToolResult }) {
+            return blocks
+        }
+        return blocks
     }
 
     /**
@@ -398,11 +535,17 @@ object SessionStorage {
      *   \n\n_Attached screenshots:_\n- `<path>`
      */
     private fun stripEnrichedContext(text: String): String {
-        // Strip "_Currently viewing ..." suffix
+        // Remove explicit rich-context suffixes.
         var cleaned = text.replace(Regex("\n\n_Currently viewing `[^`]+` \\(line \\d+\\)_$"), "")
-        // Strip "_Attached screenshots:_" suffix (may span multiple lines)
         cleaned = cleaned.replace(Regex("\n\n_Attached screenshots:_(\n- `[^`]+`)+$"), "")
-        return cleaned
+        cleaned = cleaned.replace(Regex("\n\n_Referenced files:_.*$", setOf(RegexOption.DOT_MATCHES_ALL)), "")
+
+        // Defensive cleanup for truncated summaries where enrichment is cut mid-string.
+        cleaned = cleaned.replace(Regex("\\s*_Currently viewing.*$"), "")
+        cleaned = cleaned.replace(Regex("\\s*_Attached screenshots:.*$"), "")
+        cleaned = cleaned.replace(Regex("\\s*_Referenced files:.*$"), "")
+
+        return cleaned.trim()
     }
 }
 
@@ -411,5 +554,8 @@ data class SessionInfo(
     val title: String,
     val lastTimestamp: Long,
     val messageCount: Int,
-    val slug: String? = null
+    val slug: String? = null,
+    val firstPrompt: String? = null,
+    val gitBranch: String? = null,
+    val cwd: String? = null,
 )

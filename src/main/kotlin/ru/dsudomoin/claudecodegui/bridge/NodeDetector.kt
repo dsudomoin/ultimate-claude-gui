@@ -172,18 +172,18 @@ object NodeDetector {
 
     /**
      * Checks if the Node.js version is compatible with Claude Code SDK.
-     * Requires major >= 18 and even (LTS releases are even-numbered).
+     * Requires major >= 18 (both LTS and Current releases are supported).
      */
     fun isCompatibleVersion(version: String): Boolean {
         val major = version.removePrefix("v").split(".").firstOrNull()?.toIntOrNull() ?: return false
-        return major >= 18 && major % 2 == 0
+        return major >= 18
     }
 
     /**
-     * Scans nvm/fnm version directories for a compatible LTS Node.js.
+     * Scans nvm/fnm version directories for a compatible Node.js (18+).
      * Returns the path to the `node` binary, or null if none found.
      */
-    fun findCompatibleLtsNode(): String? {
+    fun findCompatibleNode(): String? {
         val home = System.getProperty("user.home")
 
         val versionDirs = mutableListOf<File>()
@@ -228,8 +228,8 @@ object NodeDetector {
         // Homebrew keg-only: /opt/homebrew/opt/node@XX/bin/node or /usr/local/opt/node@XX/bin/node
         if (!isWindows) {
             val brewPrefixes = listOf("/opt/homebrew/opt", "/usr/local/opt")
-            val ltsVersions = listOf(24, 22, 20, 18) // prefer newest
-            for (ver in ltsVersions) {
+            val knownVersions = listOf(25, 24, 23, 22, 21, 20, 19, 18) // prefer newest
+            for (ver in knownVersions) {
                 for (prefix in brewPrefixes) {
                     val nodeBin = File("$prefix/node@$ver/bin/node")
                     if (nodeBin.canExecute()) {
