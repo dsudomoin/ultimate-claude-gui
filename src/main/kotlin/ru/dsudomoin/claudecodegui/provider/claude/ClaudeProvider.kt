@@ -4,10 +4,13 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.util.io.awaitExit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -28,6 +31,7 @@ import ru.dsudomoin.claudecodegui.provider.AiProvider
 import ru.dsudomoin.claudecodegui.service.SettingsService
 import java.io.BufferedWriter
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 /**
  * Claude provider that delegates to the Node.js bridge running @anthropic-ai/claude-code SDK.
@@ -225,50 +229,59 @@ class ClaudeProvider : AiProvider {
                 writer.newLine()
                 writer.flush()
 
-                // Read stderr concurrently — collect into buffer for error reporting
                 val stderrLines = java.util.concurrent.CopyOnWriteArrayList<String>()
-                val stderrThread = Thread({
-                    try {
-                        process.errorStream.bufferedReader().forEachLine { stderrLine ->
-                            log.info("Bridge: $stderrLine")
-                            stderrLines.add(stderrLine)
-                        }
-                    } catch (_: Exception) { }
-                }, "bridge-stderr-reader").apply { isDaemon = true; start() }
-
-                // Read tagged lines from stdout
                 var receivedError = false
-                process.inputStream.bufferedReader().use { reader ->
-                    var line: String?
-                    while (reader.readLine().also { line = it } != null) {
-                        if (!currentCoroutineContext().isActive) {
-                            process.destroyForcibly()
-                            break
-                        }
 
-                        val parsed = SDKMessageParser.parse(line!!) ?: continue
-
-                        when (parsed) {
-                            is ParsedEvent.SessionId -> {
-                                sessionId = parsed.id
-                                log.info("SDK session: ${parsed.id}")
+                coroutineScope {
+                    val stderrReaderJob = launch(Dispatchers.IO) {
+                        try {
+                            process.errorStream.bufferedReader().use { stderrReader ->
+                                var stderrLine: String?
+                                while (stderrReader.readLine().also { stderrLine = it } != null) {
+                                    stderrLine?.let {
+                                        log.info("Bridge: $it")
+                                        stderrLines.add(it)
+                                    }
+                                }
                             }
-
-                            is ParsedEvent.Stream -> {
-                                if (parsed.event is StreamEvent.Error) receivedError = true
-                                send(parsed.event)
-                            }
+                        } catch (_: Exception) {
+                            // Process may exit abruptly/cancel; safe to ignore.
                         }
                     }
+
+                    try {
+                        process.inputStream.bufferedReader().use { reader ->
+                            var line: String?
+                            while (reader.readLine().also { line = it } != null) {
+                                if (!currentCoroutineContext().isActive) {
+                                    process.destroyForcibly()
+                                    break
+                                }
+
+                                val parsed = SDKMessageParser.parse(line!!) ?: continue
+
+                                when (parsed) {
+                                    is ParsedEvent.SessionId -> {
+                                        sessionId = parsed.id
+                                        log.info("SDK session: ${parsed.id}")
+                                    }
+
+                                    is ParsedEvent.Stream -> {
+                                        if (parsed.event is StreamEvent.Error) receivedError = true
+                                        send(parsed.event)
+                                    }
+                                }
+                            }
+                        }
+                    } finally {
+                        runCatching { writer.close() }
+                        stdinWriter = null
+                        runCatching { process.inputStream.close() }
+                        runCatching { process.errorStream.close() }
+                        stderrReaderJob.cancel()
+                        withTimeoutOrNull(1000) { stderrReaderJob.join() }
+                    }
                 }
-
-                // Clean up stdin writer
-                try {
-                    writer.close()
-                } catch (_: Exception) { }
-                stdinWriter = null
-
-                stderrThread.join(3000)
 
                 val exitCode = process.awaitExit()
                 if (exitCode != 0) {
@@ -472,6 +485,8 @@ class ClaudeProvider : AiProvider {
     fun abort() {
         val writer = stdinWriter
         val process = currentProcess
+        stdinWriter = null
+        currentProcess = null
 
         if (writer != null && process != null && process.isAlive) {
             // Send graceful abort command to bridge
@@ -485,24 +500,34 @@ class ClaudeProvider : AiProvider {
                 log.warn("Failed to send abort command: ${e.message}")
             }
 
-            // Wait up to 3s for graceful shutdown, then force kill
-            Thread {
-                try {
-                    val exited = process.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)
-                    if (!exited && process.isAlive) {
-                        log.warn("Bridge did not exit after abort, force killing")
-                        process.destroyForcibly()
-                    }
-                } catch (_: Exception) {
-                    process.destroyForcibly()
+            runCatching { writer.close() }
+            try {
+                val exited = process.waitFor(1500, TimeUnit.MILLISECONDS)
+                if (!exited && process.isAlive) {
+                    process.destroy()
                 }
-            }.apply { isDaemon = true; start() }
-        } else {
-            process?.destroyForcibly()
+                val exitedAfterDestroy = !process.isAlive || process.waitFor(1000, TimeUnit.MILLISECONDS)
+                if (!exitedAfterDestroy && process.isAlive) {
+                    log.warn("Bridge did not exit after abort, force killing")
+                    process.destroyForcibly()
+                    process.waitFor(1000, TimeUnit.MILLISECONDS)
+                }
+            } catch (_: Exception) {
+                process.destroyForcibly()
+            }
+            runCatching { process.inputStream.close() }
+            runCatching { process.errorStream.close() }
+            runCatching { process.outputStream.close() }
+            return
         }
 
-        stdinWriter = null
-        currentProcess = null
+        runCatching { writer?.close() }
+        process?.let {
+            runCatching { it.destroyForcibly() }
+            runCatching { it.inputStream.close() }
+            runCatching { it.errorStream.close() }
+            runCatching { it.outputStream.close() }
+        }
     }
 
     fun stopTask(taskId: String): Boolean {

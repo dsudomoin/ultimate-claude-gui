@@ -67,7 +67,7 @@ class ClaudeToolWindowFactory : ToolWindowFactory {
             }
         }
         toolWindow.contentManager.addContentManagerListener(contentManagerListener)
-        registerProjectDispose(project) {
+        registerToolWindowDispose(toolWindow) {
             runCatching { toolWindow.contentManager.removeContentManagerListener(contentManagerListener) }
         }
 
@@ -105,7 +105,7 @@ class ClaudeToolWindowFactory : ToolWindowFactory {
             }
         }
         toolWindow.setAdditionalGearActions(DefaultActionGroup(renameAction))
-        registerProjectDispose(project) {
+        registerToolWindowDispose(toolWindow) {
             runCatching { toolWindow.setTitleActions(emptyList()) }
             runCatching { toolWindow.setAdditionalGearActions(DefaultActionGroup()) }
         }
@@ -153,13 +153,13 @@ class ClaudeToolWindowFactory : ToolWindowFactory {
             }
         }
         toolWindow.contentManager.component.addMouseListener(mouseListener)
-        registerProjectDispose(project) {
+        registerToolWindowDispose(toolWindow) {
             runCatching { toolWindow.contentManager.component.removeMouseListener(mouseListener) }
         }
     }
 
-    private fun registerProjectDispose(project: Project, onDispose: () -> Unit) {
-        Disposer.register(project, Disposable { onDispose() })
+    private fun registerToolWindowDispose(toolWindow: ToolWindow, onDispose: () -> Unit) {
+        Disposer.register(toolWindow.disposable, Disposable { onDispose() })
     }
 
     private fun toggleHistory(project: Project, toolWindow: ToolWindow) {
@@ -757,6 +757,10 @@ class ChatContainerPanel(
 
     override fun dispose() {
         scope.cancel()
+        remove(composeChatPanel)
+        (composeChatPanel as? Disposable)?.let { disposablePanel ->
+            runCatching { Disposer.dispose(disposablePanel) }
+        }
         keyDispatcher?.let {
             java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager()
                 .removeKeyEventDispatcher(it)

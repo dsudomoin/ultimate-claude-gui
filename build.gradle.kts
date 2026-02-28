@@ -4,6 +4,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization") version "2.3.10"
     id("org.jetbrains.kotlin.plugin.compose") version "2.3.10"
     id("org.jetbrains.intellij.platform") version "2.11.0"
+    id("org.jetbrains.changelog") version "2.5.0"
 }
 
 group = "ru.dsudomoin"
@@ -61,10 +62,20 @@ intellijPlatform {
             sinceBuild = "253.28294"
         }
 
-        changeNotes = """
-            Phase 1: Core foundation with native chat UI
-        """.trimIndent()
+        changeNotes = provider {
+            changelog.renderItem(
+                (changelog.getOrNull(project.version.toString()) ?: changelog.getUnreleased())
+                    .withHeader(false)
+                    .withEmptySections(false),
+                org.jetbrains.changelog.Changelog.OutputType.HTML,
+            )
+        }
     }
+}
+
+changelog {
+    version = project.version.toString()
+    groups.empty()
 }
 
 tasks {
