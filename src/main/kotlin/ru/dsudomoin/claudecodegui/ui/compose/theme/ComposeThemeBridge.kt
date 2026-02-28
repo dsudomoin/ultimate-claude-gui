@@ -1,7 +1,10 @@
 package ru.dsudomoin.claudecodegui.ui.compose.theme
 
+import androidx.compose.foundation.LocalScrollbarStyle
+import androidx.compose.foundation.ScrollbarStyle
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import com.intellij.openapi.application.ApplicationManager
 import ru.dsudomoin.claudecodegui.ui.theme.ThemeChangeListener
 import ru.dsudomoin.claudecodegui.ui.theme.ThemeColors
@@ -179,6 +182,17 @@ val LocalClaudeColors = staticCompositionLocalOf { ClaudeColorPalette.fromThemeC
 @Composable
 fun ClaudeComposeTheme(content: @Composable () -> Unit) {
     var palette by remember { mutableStateOf(ClaudeColorPalette.fromThemeColors()) }
+    val defaultScrollbarStyle = LocalScrollbarStyle.current
+    val scrollbarStyle: ScrollbarStyle = remember(palette, defaultScrollbarStyle) {
+        val isDarkSurface = palette.surfacePrimary.luminance() < 0.5f
+        val baseScrollbarColor = if (isDarkSurface) Color.White else Color.Black
+        val unhoverAlpha = if (isDarkSurface) 0.26f else 0.18f
+        val hoverAlpha = if (isDarkSurface) 0.42f else 0.32f
+        defaultScrollbarStyle.copy(
+            unhoverColor = baseScrollbarColor.copy(alpha = unhoverAlpha),
+            hoverColor = baseScrollbarColor.copy(alpha = hoverAlpha),
+        )
+    }
 
     // Subscribe to theme change notifications from the IntelliJ message bus
     DisposableEffect(Unit) {
@@ -190,7 +204,10 @@ fun ClaudeComposeTheme(content: @Composable () -> Unit) {
         onDispose { connection.disconnect() }
     }
 
-    CompositionLocalProvider(LocalClaudeColors provides palette) {
+    CompositionLocalProvider(
+        LocalClaudeColors provides palette,
+        LocalScrollbarStyle provides scrollbarStyle,
+    ) {
         content()
     }
 }

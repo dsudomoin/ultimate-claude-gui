@@ -1,13 +1,13 @@
 package ru.dsudomoin.claudecodegui.ui.compose.chat
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -23,12 +23,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,8 +52,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.verticalScroll
 import org.jetbrains.jewel.ui.component.Text
 import ru.dsudomoin.claudecodegui.ui.compose.common.ComposeMarkdownContent
 import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
@@ -112,13 +112,24 @@ fun ComposeToolUseBlock(
     val isReadTool = data.toolName.lowercase() in setOf("read", "read_file")
     var expanded by remember { mutableStateOf(isReadTool && data.expandable != null) }
     val hasExpandable = data.expandable != null
+    val statusColor = when (data.status) {
+        ToolStatus.PENDING -> colors.statusWarning
+        ToolStatus.COMPLETED -> colors.statusSuccess
+        ToolStatus.ERROR -> colors.statusError
+    }
+    val borderColor = if (data.status == ToolStatus.COMPLETED) colors.borderNormal else statusColor.copy(alpha = 0.5f)
+    val baseBackground = when (data.status) {
+        ToolStatus.ERROR -> colors.statusError.copy(alpha = 0.06f)
+        ToolStatus.PENDING -> colors.statusWarning.copy(alpha = 0.05f)
+        ToolStatus.COMPLETED -> colors.surfacePrimary
+    }
 
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .border(1.dp, colors.borderNormal, shape)
-            .background(if (isHovered && !expanded) colors.surfaceHover else colors.surfacePrimary)
+            .border(1.dp, borderColor, shape)
+            .background(if (isHovered && !expanded) colors.surfaceHover else baseBackground)
             .hoverable(interactionSource)
             .then(
                 if (hasExpandable) Modifier.clickable { expanded = !expanded }
@@ -131,7 +142,7 @@ fun ComposeToolUseBlock(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(36.dp)
+                .height(38.dp)
                 .padding(horizontal = 12.dp),
         ) {
             // Expand chevron
@@ -153,7 +164,7 @@ fun ComposeToolUseBlock(
             // Tool display name
             Text(
                 text = data.displayName,
-                style = TextStyle(fontSize = 13.sp, color = colors.textPrimary),
+                style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Medium, color = colors.textPrimary),
             )
             Spacer(Modifier.width(8.dp))
 
@@ -232,15 +243,15 @@ fun ComposeToolUseBlock(
 
             Spacer(Modifier.width(4.dp))
 
-            // Status dot
-            StatusDot(status = data.status)
+            // Status badge
+            ToolStatusBadge(status = data.status)
         }
 
         // Expandable details
         AnimatedVisibility(
             visible = expanded && data.expandable != null,
-            enter = expandVertically(),
-            exit = shrinkVertically(),
+            enter = EnterTransition.None,
+            exit = ExitTransition.None,
         ) {
             Column(
                 modifier = Modifier
@@ -293,13 +304,48 @@ fun ComposeToolUseBlock(
                                 .verticalScroll(mdScrollState)
                                 .padding(horizontal = 12.dp, vertical = 8.dp),
                         ) {
-                            ComposeMarkdownContent(markdown = content.text)
+                            ComposeMarkdownContent(markdown = content.text, selectable = false)
                         }
                     }
                     null -> {}
                 }
             }
         }
+    }
+}
+
+@Composable
+fun ToolStatusBadge(
+    status: ToolStatus,
+    compact: Boolean = false,
+    modifier: Modifier = Modifier,
+) {
+    val colors = LocalClaudeColors.current
+    val (label, color) = when (status) {
+        ToolStatus.PENDING -> "Running" to colors.statusWarning
+        ToolStatus.COMPLETED -> "Done" to colors.statusSuccess
+        ToolStatus.ERROR -> "Error" to colors.statusError
+    }
+    val fontSize = if (compact) 9.sp else 10.sp
+    val horizontal = if (compact) 6.dp else 7.dp
+    val vertical = if (compact) 1.dp else 2.dp
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(color.copy(alpha = 0.14f))
+            .border(1.dp, color.copy(alpha = 0.4f), RoundedCornerShape(999.dp))
+            .padding(horizontal = horizontal, vertical = vertical),
+    ) {
+        Text(
+            text = label,
+            style = TextStyle(
+                fontSize = fontSize,
+                lineHeight = fontSize,
+                color = color,
+                fontWeight = FontWeight.SemiBold,
+            ),
+        )
     }
 }
 

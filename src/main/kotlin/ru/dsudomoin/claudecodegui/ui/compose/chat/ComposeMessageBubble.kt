@@ -2,7 +2,6 @@ package ru.dsudomoin.claudecodegui.ui.compose.chat
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -45,11 +45,8 @@ import ru.dsudomoin.claudecodegui.core.model.ContentBlock
 import ru.dsudomoin.claudecodegui.core.model.Message
 import ru.dsudomoin.claudecodegui.core.model.Role
 import ru.dsudomoin.claudecodegui.core.model.ToolSummaryExtractor
-import com.intellij.openapi.diagnostic.Logger
 import ru.dsudomoin.claudecodegui.ui.compose.common.ComposeMarkdownContent
 import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
-
-private val log = Logger.getInstance("ComposeMessageBubble")
 
 /**
  * State holder for streaming message data.
@@ -140,64 +137,62 @@ private fun UserBubble(
     val borderColor = colors.userBubbleBorder
     val fgColor = colors.userBubbleFg
 
-    SelectionContainer {
-        Box(
-            modifier = modifier
-                .fillMaxWidth()
-                .padding(start = 48.dp), // push right for 85% effect
-            contentAlignment = Alignment.CenterEnd,
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = 48.dp), // push right for 85% effect
+        contentAlignment = Alignment.CenterEnd,
+    ) {
+        Column(
+            modifier = Modifier
+                .clip(bubbleShape)
+                .drawBehind {
+                    // Fill
+                    drawRoundRect(
+                        color = bgColor,
+                        cornerRadius = CornerRadius(12.dp.toPx()),
+                    )
+                    // Border
+                    drawRoundRect(
+                        color = borderColor,
+                        cornerRadius = CornerRadius(12.dp.toPx()),
+                        style = Stroke(width = 1.dp.toPx()),
+                    )
+                }
+                .padding(horizontal = 14.dp, vertical = 10.dp),
         ) {
-            Column(
-                modifier = Modifier
-                    .clip(bubbleShape)
-                    .drawBehind {
-                        // Fill
-                        drawRoundRect(
-                            color = bgColor,
-                            cornerRadius = CornerRadius(12.dp.toPx()),
-                        )
-                        // Border
-                        drawRoundRect(
-                            color = borderColor,
-                            cornerRadius = CornerRadius(12.dp.toPx()),
-                            style = Stroke(width = 1.dp.toPx()),
+            message.content.forEach { block ->
+                when (block) {
+                    is ContentBlock.Text -> {
+                        Text(
+                            text = block.text,
+                            style = TextStyle(fontSize = 13.sp, color = fgColor),
                         )
                     }
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-            ) {
-                message.content.forEach { block ->
-                    when (block) {
-                        is ContentBlock.Text -> {
+                    is ContentBlock.Image -> {
+                        val bitmap = remember(block.source) {
+                            try {
+                                ImageIO.read(java.io.File(block.source))?.toComposeImageBitmap()
+                            } catch (_: Exception) { null }
+                        }
+                        if (bitmap != null) {
+                            Image(
+                                bitmap = bitmap,
+                                contentDescription = block.source.substringAfterLast('/'),
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 200.dp)
+                                    .clip(RoundedCornerShape(8.dp)),
+                            )
+                        } else {
                             Text(
-                                text = block.text,
-                                style = TextStyle(fontSize = 13.sp, color = fgColor),
+                                text = "\uD83D\uDDBC ${block.source.substringAfterLast('/')}",
+                                style = TextStyle(fontSize = 12.sp, color = fgColor.copy(alpha = 0.7f)),
                             )
                         }
-                        is ContentBlock.Image -> {
-                            val bitmap = remember(block.source) {
-                                try {
-                                    ImageIO.read(java.io.File(block.source))?.toComposeImageBitmap()
-                                } catch (_: Exception) { null }
-                            }
-                            if (bitmap != null) {
-                                Image(
-                                    bitmap = bitmap,
-                                    contentDescription = block.source.substringAfterLast('/'),
-                                    contentScale = ContentScale.Fit,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .heightIn(max = 200.dp)
-                                        .clip(RoundedCornerShape(8.dp)),
-                                )
-                            } else {
-                                Text(
-                                    text = "\uD83D\uDDBC ${block.source.substringAfterLast('/')}",
-                                    style = TextStyle(fontSize = 12.sp, color = fgColor.copy(alpha = 0.7f)),
-                                )
-                            }
-                        }
-                        else -> {} // Other blocks shouldn't appear in user messages
                     }
+                    else -> {} // Other blocks shouldn't appear in user messages
                 }
             }
         }
@@ -217,33 +212,29 @@ private fun AssistantBubble(
     onToolRevert: ((ExpandableContent) -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
-    val colors = LocalClaudeColors.current
-
-    SelectionContainer {
-        Column(
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 4.dp),
-        ) {
-            if (streaming && streamingState != null) {
-                // Streaming mode
-                StreamingAssistantContent(
-                    state = streamingState,
-                    contentFlow = contentFlow.orEmpty(),
-                    onFileClick = onFileClick,
-                    onToolShowDiff = onToolShowDiff,
-                    onToolRevert = onToolRevert,
-                )
-            } else {
-                // Finished message — render content blocks
-                FinishedAssistantContent(
-                    message = message,
-                    onFileClick = onFileClick,
-                    onToolShowDiff = onToolShowDiff,
-                    onToolRevert = onToolRevert,
-                )
-            }
+    Column(
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+    ) {
+        if (streaming && streamingState != null) {
+            // Streaming mode
+            StreamingAssistantContent(
+                state = streamingState,
+                contentFlow = contentFlow.orEmpty(),
+                onFileClick = onFileClick,
+                onToolShowDiff = onToolShowDiff,
+                onToolRevert = onToolRevert,
+            )
+        } else {
+            // Finished message — render content blocks
+            FinishedAssistantContent(
+                message = message,
+                onFileClick = onFileClick,
+                onToolShowDiff = onToolShowDiff,
+                onToolRevert = onToolRevert,
+            )
         }
     }
 }
@@ -256,8 +247,6 @@ private fun StreamingAssistantContent(
     onToolShowDiff: ((ExpandableContent) -> Unit)? = null,
     onToolRevert: ((ExpandableContent) -> Unit)? = null,
 ) {
-    val colors = LocalClaudeColors.current
-
     // Timer row
     if (state.isTimerRunning) {
         StreamingTimerRow()
@@ -274,48 +263,55 @@ private fun StreamingAssistantContent(
 
     // Content flow: interleaved text and tool blocks
     if (contentFlow.isNotEmpty()) {
-        LaunchedEffect(contentFlow.size) {
-            log.info("StreamingAssistantContent: ${contentFlow.size} flow items")
-            contentFlow.forEachIndexed { idx, item ->
-                when (item) {
-                    is ContentFlowItem.TextSegment -> log.info("  [$idx] TextSegment len=${item.text.length}, blank=${item.text.isBlank()}")
-                    is ContentFlowItem.ToolBlock -> log.info("  [$idx] ToolBlock ${item.data.toolName}")
-                    is ContentFlowItem.ToolGroup -> log.info("  [$idx] ToolGroup ${item.data.category}")
-                    is ContentFlowItem.ApprovalSlot -> log.info("  [$idx] ApprovalSlot")
-                }
-            }
-        }
-        contentFlow.forEach { item ->
+        val lastTextIndex = contentFlow.indexOfLast { it is ContentFlowItem.TextSegment }
+        contentFlow.forEachIndexed { index, item ->
             when (item) {
                 is ContentFlowItem.TextSegment -> {
                     if (item.text.isNotBlank()) {
-                        ComposeMarkdownContent(markdown = item.text)
+                        key("text_$index") {
+                            if (index == lastTextIndex) {
+                                // Live (growing) segment — always re-render
+                                ComposeMarkdownContent(markdown = item.text, selectable = false)
+                            } else {
+                                // Frozen segment (before tools) — memoize to avoid re-parse
+                                val memoizedText = remember(item.text) { item.text }
+                                ComposeMarkdownContent(markdown = memoizedText, selectable = false)
+                            }
+                        }
                     }
                 }
                 is ContentFlowItem.ToolBlock -> {
-                    ComposeToolUseBlock(
-                        data = item.data,
-                        onFileClick = onFileClick,
-                        onShowDiff = item.data.expandable?.let { exp -> onToolShowDiff?.let { cb -> { cb(exp) } } },
-                        onRevert = item.data.expandable?.let { exp -> onToolRevert?.let { cb -> { cb(exp) } } },
-                    )
+                    key("tool_${item.data.id}") {
+                        ComposeToolUseBlock(
+                            data = item.data,
+                            onFileClick = onFileClick,
+                            onShowDiff = item.data.expandable?.let { exp -> onToolShowDiff?.let { cb -> { cb(exp) } } },
+                            onRevert = item.data.expandable?.let { exp -> onToolRevert?.let { cb -> { cb(exp) } } },
+                            modifier = Modifier.padding(vertical = 2.dp),
+                        )
+                    }
                 }
                 is ContentFlowItem.ToolGroup -> {
-                    ComposeToolGroupBlock(
-                        data = item.data,
-                        onFileClick = onFileClick,
-                        onToolShowDiff = onToolShowDiff,
-                        onToolRevert = onToolRevert,
-                    )
+                    key("group_${item.data.category}_$index") {
+                        ComposeToolGroupBlock(
+                            data = item.data,
+                            onFileClick = onFileClick,
+                            onToolShowDiff = onToolShowDiff,
+                            onToolRevert = onToolRevert,
+                            modifier = Modifier.padding(vertical = 2.dp),
+                        )
+                    }
                 }
                 is ContentFlowItem.ApprovalSlot -> {
-                    // Placeholder — approval panels will be inserted here by the orchestrator
+                    key("approval_${item.id}") {
+                        // Placeholder — approval panels will be inserted here by the orchestrator
+                    }
                 }
             }
         }
     } else if (state.responseText.isNotBlank()) {
         // Fallback: show raw response as markdown
-        ComposeMarkdownContent(markdown = state.responseText)
+        ComposeMarkdownContent(markdown = state.responseText, selectable = false)
     }
 }
 
@@ -344,24 +340,13 @@ private fun FinishedAssistantContent(
 
     // Build render items with tool grouping
     val renderItems = remember(message) {
-        buildFinishedRenderItems(message.content, toolResultMap).also { items ->
-            log.info("FinishedAssistantContent: ${items.size} renderItems from ${message.content.size} contentBlocks")
-            items.forEachIndexed { idx, item ->
-                when (item) {
-                    is FinishedRenderItem.MarkdownText -> log.info("  [$idx] MarkdownText len=${item.text.length}, preview='${item.text.take(120)}'")
-                    is FinishedRenderItem.SingleTool -> log.info("  [$idx] SingleTool ${item.data.toolName} - ${item.data.summary}")
-                    is FinishedRenderItem.ToolGroupItem -> log.info("  [$idx] ToolGroup ${item.data.category} x${item.data.items.size}")
-                    is FinishedRenderItem.CodeItem -> log.info("  [$idx] CodeItem lang=${item.language} len=${item.code.length}")
-                    is FinishedRenderItem.ImageItem -> log.info("  [$idx] ImageItem ${item.source}")
-                }
-            }
-        }
+        buildFinishedRenderItems(message.content, toolResultMap)
     }
 
     renderItems.forEach { item ->
         when (item) {
             is FinishedRenderItem.MarkdownText -> {
-                ComposeMarkdownContent(markdown = item.text)
+                ComposeMarkdownContent(markdown = item.text, selectable = false)
             }
             is FinishedRenderItem.CodeItem -> {
                 CodeBlock(code = item.code, language = item.language)
@@ -395,6 +380,7 @@ private fun FinishedAssistantContent(
                     onFileClick = onFileClick,
                     onShowDiff = item.data.expandable?.let { exp -> onToolShowDiff?.let { cb -> { cb(exp) } } },
                     onRevert = item.data.expandable?.let { exp -> onToolRevert?.let { cb -> { cb(exp) } } },
+                    modifier = Modifier.padding(vertical = 2.dp),
                 )
             }
             is FinishedRenderItem.ToolGroupItem -> {
@@ -403,6 +389,7 @@ private fun FinishedAssistantContent(
                     onFileClick = onFileClick,
                     onToolShowDiff = onToolShowDiff,
                     onToolRevert = onToolRevert,
+                    modifier = Modifier.padding(vertical = 2.dp),
                 )
             }
         }
@@ -509,6 +496,13 @@ private fun buildFinishedExpandable(
     resultContent: String?,
 ): ExpandableContent? {
     val lower = toolName.lowercase()
+    if (lower in setOf("read", "read_file")) {
+        return null
+    }
+    if (lower == "task" || lower == "taskoutput") {
+        val markdown = buildTaskExpandableMarkdown(input, resultContent)
+        if (markdown.isNotBlank()) return ExpandableContent.Markdown(markdown)
+    }
     if (lower in setOf("edit", "edit_file", "replace_string")) {
         val diff = ToolSummaryExtractor.extractEditDiffStrings(input)
         if (diff != null) {
@@ -523,11 +517,6 @@ private fun buildFinishedExpandable(
             return ExpandableContent.Code(content, filePath)
         }
     }
-    if (lower in setOf("read", "read_file")) {
-        if (resultContent?.isNotBlank() == true) {
-            return ExpandableContent.Markdown(resultContent)
-        }
-    }
     if (lower in setOf("bash", "run_terminal_cmd", "execute_command", "executecommand", "shell_command")) {
         val cmd = ToolSummaryExtractor.extractBashCommand(input)
         val output = resultContent?.takeIf { it.isNotBlank() }
@@ -537,23 +526,43 @@ private fun buildFinishedExpandable(
         }.trimEnd()
         if (text.isNotBlank()) return ExpandableContent.PlainText(text)
     }
-    if (lower == "task" || lower == "taskoutput") {
-        val prompt = input["prompt"]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
-        val desc = input["description"]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
-        val text = buildString {
-            if (!desc.isNullOrBlank()) { appendLine("# $desc"); appendLine() }
-            if (!prompt.isNullOrBlank()) { appendLine(prompt); appendLine() }
-            if (!resultContent.isNullOrBlank()) {
-                if (isNotEmpty()) appendLine("─── Result ───")
-                append(resultContent)
-            }
-        }.trimEnd()
-        if (text.isNotBlank()) return ExpandableContent.PlainText(text)
-    }
     if (ToolSummaryExtractor.hasUsefulResultContent(toolName) && resultContent?.isNotBlank() == true) {
         return ExpandableContent.PlainText(resultContent)
     }
     return null
+}
+
+private fun buildTaskExpandableMarkdown(
+    input: kotlinx.serialization.json.JsonObject,
+    resultContent: String?,
+): String {
+    val description = input["description"]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }?.trim().orEmpty()
+    val prompt = input["prompt"]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }?.trim().orEmpty()
+    val subagentType = input["subagent_type"]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }?.trim().orEmpty()
+    val result = resultContent?.trim().orEmpty()
+
+    return buildString {
+        if (description.isNotBlank()) {
+            appendLine("### Task")
+            appendLine(description)
+        }
+        if (subagentType.isNotBlank()) {
+            if (isNotEmpty()) appendLine()
+            append("**Subagent:** `")
+            append(subagentType)
+            appendLine("`")
+        }
+        if (prompt.isNotBlank()) {
+            if (isNotEmpty()) appendLine()
+            appendLine("### Prompt")
+            appendLine(prompt)
+        }
+        if (result.isNotBlank()) {
+            if (isNotEmpty()) appendLine()
+            appendLine("### Result")
+            appendLine(result)
+        }
+    }.trim()
 }
 
 private fun buildFinishedDiffStats(

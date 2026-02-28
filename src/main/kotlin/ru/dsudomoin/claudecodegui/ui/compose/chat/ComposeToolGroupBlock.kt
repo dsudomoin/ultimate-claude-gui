@@ -1,8 +1,8 @@
 package ru.dsudomoin.claudecodegui.ui.compose.chat
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -20,8 +20,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,6 +33,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -94,13 +95,24 @@ fun ComposeToolGroupBlock(
         data.items.any { it.status == ToolStatus.PENDING } -> ToolStatus.PENDING
         else -> ToolStatus.COMPLETED
     }
+    val statusColor = when (aggregateStatus) {
+        ToolStatus.PENDING -> colors.statusWarning
+        ToolStatus.COMPLETED -> colors.statusSuccess
+        ToolStatus.ERROR -> colors.statusError
+    }
+    val borderColor = if (aggregateStatus == ToolStatus.COMPLETED) colors.borderNormal else statusColor.copy(alpha = 0.5f)
+    val backgroundColor = when (aggregateStatus) {
+        ToolStatus.ERROR -> colors.statusError.copy(alpha = 0.06f)
+        ToolStatus.PENDING -> colors.statusWarning.copy(alpha = 0.05f)
+        ToolStatus.COMPLETED -> colors.surfacePrimary
+    }
 
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .border(1.dp, colors.borderNormal, shape)
-            .background(if (isHovered && !expanded) colors.surfaceHover else colors.surfacePrimary)
+            .border(1.dp, borderColor, shape)
+            .background(if (isHovered && !expanded) colors.surfaceHover else backgroundColor)
             .hoverable(interactionSource),
     ) {
         // Group header
@@ -108,7 +120,7 @@ fun ComposeToolGroupBlock(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(36.dp)
+                .height(38.dp)
                 .clickable { expanded = !expanded }
                 .pointerHoverIcon(PointerIcon.Hand)
                 .padding(horizontal = 12.dp),
@@ -130,7 +142,7 @@ fun ComposeToolGroupBlock(
             // Category title with count
             Text(
                 text = "${getCategoryLabel(data.category)} (${data.items.size})",
-                style = TextStyle(fontSize = 13.sp, color = colors.textPrimary),
+                style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Medium, color = colors.textPrimary),
             )
             Spacer(Modifier.width(8.dp))
 
@@ -156,15 +168,15 @@ fun ComposeToolGroupBlock(
 
             Spacer(Modifier.weight(1f))
 
-            // Aggregate status dot
-            StatusDot(status = aggregateStatus)
+            // Aggregate status
+            ToolStatusBadge(status = aggregateStatus, compact = true)
         }
 
         // Expandable items list
         AnimatedVisibility(
             visible = expanded,
-            enter = expandVertically(),
-            exit = shrinkVertically(),
+            enter = EnterTransition.None,
+            exit = ExitTransition.None,
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 // Separator
@@ -209,7 +221,7 @@ private fun GroupItemRow(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(28.dp)
+                .height(30.dp)
                 .hoverable(interactionSource)
                 .then(
                     if (isHovered) Modifier.background(colors.surfaceHover) else Modifier
@@ -294,15 +306,15 @@ private fun GroupItemRow(
 
             Spacer(Modifier.width(4.dp))
 
-            // Item status dot
-            StatusDot(status = item.status, modifier = Modifier)
+            // Item status
+            ToolStatusBadge(status = item.status, compact = true)
         }
 
         // Expandable content for this item
         AnimatedVisibility(
             visible = itemExpanded && hasExpandable,
-            enter = expandVertically(),
-            exit = shrinkVertically(),
+            enter = EnterTransition.None,
+            exit = ExitTransition.None,
         ) {
             Column(
                 modifier = Modifier
@@ -354,7 +366,7 @@ private fun GroupItemRow(
                                 .verticalScroll(mdScrollState)
                                 .padding(horizontal = 12.dp, vertical = 8.dp),
                         ) {
-                            ComposeMarkdownContent(markdown = content.text)
+                            ComposeMarkdownContent(markdown = content.text, selectable = false)
                         }
                     }
                     null -> {}

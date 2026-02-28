@@ -6,6 +6,7 @@ import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -76,6 +77,8 @@ class ChatController(
      */
     private val scope = CoroutineScope(SupervisorJob() + edtDispatcher)
     private var currentJob: Job? = null
+    /** Debounced rebuild of the streaming content flow (avoids O(n) work on every TextDelta). */
+    private var contentFlowRebuildJob: Job? = null
 
     private val sessionManager = SessionManager.getInstance(project)
     var sessionId: String? = null
@@ -541,6 +544,27 @@ class ChatController(
         var compactAfterResponse = false  // set when user approves plan with compact
         var hasError = false
 
+        fun enterPlanMode(origin: String) {
+            if (!inPlanMode) {
+                inPlanMode = true
+                planModeStartOffset = responseText.length
+                log.info("$origin: entering plan mode, offset=$planModeStartOffset")
+            } else {
+                log.info("$origin: duplicate plan-mode enter ignored, accumulatorLen=${planTextAccumulator.length}, offset=$planModeStartOffset")
+            }
+        }
+
+        fun addToolUseBlock(id: String, name: String, input: JsonObject) {
+            val toolBlock = ContentBlock.ToolUse(id, name, input)
+            toolUseBlocks.add(toolBlock)
+            textCheckpoints.add(responseText.length)
+            trackToolUseForStatus(id, name, input)
+            syncStatusToViewModel()
+            contentFlowRebuildJob?.cancel()
+            rebuildStreamingContentFlow(responseText, toolUseBlocks, toolResults, textCheckpoints)
+            viewModel.requestScrollToBottom()
+        }
+
         val settings = SettingsService.getInstance()
         val selectedModel = settings.state.claudeModel
         val selectedMode = settings.state.permissionMode
@@ -596,15 +620,19 @@ class ChatController(
                                 val text = responseText.toString()
                                 viewModel.streamingResponseText = text
                                 if (toolUseBlocks.isNotEmpty()) {
-                                    rebuildStreamingContentFlow(responseText, toolUseBlocks, toolResults, textCheckpoints)
+                                    // Debounce: rebuild content flow at most every 200ms during text streaming.
+                                    // ToolUse/ToolResult events still trigger immediate rebuilds.
+                                    contentFlowRebuildJob?.cancel()
+                                    contentFlowRebuildJob = scope.launch {
+                                        delay(200)
+                                        rebuildStreamingContentFlow(responseText, toolUseBlocks, toolResults, textCheckpoints)
+                                    }
                                 }
                             }
                         }
 
                         is StreamEvent.PlanModeEnter -> {
-                            log.info("PlanModeEnter: suppressing text streaming")
-                            inPlanMode = true
-                            planModeStartOffset = responseText.length
+                            enterPlanMode("PlanModeEnter")
                         }
 
                         is StreamEvent.PlanModeExit -> {
@@ -624,26 +652,21 @@ class ChatController(
                         is StreamEvent.ToolUse -> {
                             val lowerName = event.name.lowercase()
                             if (lowerName == "enterplanmode") {
-                                log.info("EnterPlanMode ToolUse: setting inPlanMode=true, offset=${responseText.length}")
-                                inPlanMode = true
-                                planModeStartOffset = responseText.length
-                                planTextAccumulator.clear()
+                                // Keep plan-mode tools visible in the content flow.
+                                addToolUseBlock(event.id, event.name, event.input)
+                                enterPlanMode("EnterPlanMode ToolUse")
                                 return@collect
                             }
                             if (lowerName == "exitplanmode") {
+                                // Keep plan-mode tools visible in the content flow.
+                                addToolUseBlock(event.id, event.name, event.input)
                                 return@collect
                             }
                             if (!thinkingCollapsed && thinkingText.isNotEmpty()) {
                                 thinkingCollapsed = true
                                 viewModel.thinkingCollapsed = true
                             }
-                            val toolBlock = ContentBlock.ToolUse(event.id, event.name, event.input)
-                            toolUseBlocks.add(toolBlock)
-                            textCheckpoints.add(responseText.length)
-                            trackToolUseForStatus(event.id, event.name, event.input)
-                            syncStatusToViewModel()
-                            rebuildStreamingContentFlow(responseText, toolUseBlocks, toolResults, textCheckpoints)
-                            viewModel.requestScrollToBottom()
+                            addToolUseBlock(event.id, event.name, event.input)
                         }
 
                         is StreamEvent.ToolResult -> {
@@ -652,6 +675,7 @@ class ChatController(
                             toolResults[event.id] = event.content to event.isError
                             trackToolResultForStatus(event.id, event.isError)
                             syncStatusToViewModel()
+                            contentFlowRebuildJob?.cancel()
                             rebuildStreamingContentFlow(responseText, toolUseBlocks, toolResults, textCheckpoints)
                             viewModel.requestScrollToBottom()
                         }
@@ -677,7 +701,11 @@ class ChatController(
                                     val text = responseText.toString()
                                     viewModel.streamingResponseText = text
                                     if (toolUseBlocks.isNotEmpty()) {
-                                        rebuildStreamingContentFlow(responseText, toolUseBlocks, toolResults, textCheckpoints)
+                                        contentFlowRebuildJob?.cancel()
+                                        contentFlowRebuildJob = scope.launch {
+                                            delay(200)
+                                            rebuildStreamingContentFlow(responseText, toolUseBlocks, toolResults, textCheckpoints)
+                                        }
                                     }
                                 }
                             }
@@ -695,6 +723,8 @@ class ChatController(
 
                         is StreamEvent.StreamEnd -> {
                             if (hasError) return@collect
+                            contentFlowRebuildJob?.cancel()
+                            contentFlowRebuildJob = null
 
                             sessionId = provider.sessionId
                             val blocks = buildAssistantBlocks(thinkingText, responseText, toolUseBlocks, toolResults, textCheckpoints)
@@ -755,25 +785,25 @@ class ChatController(
                                     provider.sendPermissionResponse(true)
                                 }
                             } else if (lower == "enterplanmode") {
-                                log.info("EnterPlanMode PermissionRequest: auto-approve, setting inPlanMode")
-                                inPlanMode = true
-                                planModeStartOffset = responseText.length
-                                planTextAccumulator.clear()
+                                enterPlanMode("EnterPlanMode PermissionRequest")
                                 provider.sendPermissionResponse(true)
                             } else if (lower == "exitplanmode") {
                                 log.info("ExitPlanMode PermissionRequest: showing plan dialog, accumulator=${planTextAccumulator.length}, pending=${pendingPlanMarkdown?.length}")
                                 inPlanMode = false
                                 try {
-                                    // Use direct accumulator first, then pendingPlanMarkdown from PlanModeExit, then offset-based
-                                    val planMarkdown = when {
-                                        planTextAccumulator.isNotEmpty() -> planTextAccumulator.toString()
-                                        pendingPlanMarkdown?.isNotBlank() == true -> pendingPlanMarkdown!!
-                                        else -> {
-                                            val effectiveOffset = if (planModeStartOffset > 0) planModeStartOffset
-                                                else textCheckpoints.lastOrNull()?.coerceAtMost(responseText.length) ?: 0
-                                            responseText.substring(effectiveOffset).toString()
-                                        }
+                                    val effectiveOffset = if (planModeStartOffset > 0) {
+                                        planModeStartOffset.coerceAtMost(responseText.length)
+                                    } else {
+                                        textCheckpoints.lastOrNull()?.coerceAtMost(responseText.length) ?: 0
                                     }
+                                    val offsetCandidate = responseText.substring(effectiveOffset)
+                                    val inputCandidate = extractPlanMarkdownFromInput(event.input)
+                                    val planMarkdown = listOfNotNull(
+                                        inputCandidate?.takeIf { it.isNotBlank() },
+                                        planTextAccumulator.toString().takeIf { it.isNotBlank() },
+                                        pendingPlanMarkdown?.takeIf { it.isNotBlank() },
+                                        offsetCandidate.takeIf { it.isNotBlank() },
+                                    ).maxByOrNull { it.length } ?: ""
                                     pendingPlanMarkdown = null
                                     log.info("ExitPlanMode: planMarkdown length=${planMarkdown.length}, preview=${planMarkdown.take(200)}")
 
@@ -927,7 +957,7 @@ class ChatController(
                 maxTokens = maxTokens,
             )
         }
-        viewModel.requestScrollToBottom()
+        viewModel.requestForceScrollToBottom()
     }
 
     val sessionTitle: String
@@ -1219,6 +1249,13 @@ class ChatController(
         resultContent: String?,
     ): ExpandableContent? {
         val lower = toolName.lowercase()
+        if (lower in setOf("read", "read_file")) {
+            return null
+        }
+        if (lower == "task" || lower == "taskoutput") {
+            val markdown = buildTaskExpandableMarkdown(input, resultContent)
+            if (markdown.isNotBlank()) return ExpandableContent.Markdown(markdown)
+        }
         // Edit tools → diff from input with file path for syntax highlighting
         if (lower in setOf("edit", "edit_file", "replace_string")) {
             val diff = ToolSummaryExtractor.extractEditDiffStrings(input)
@@ -1233,12 +1270,6 @@ class ChatController(
             if (content != null && content.isNotBlank()) {
                 val filePath = ToolSummaryExtractor.extractFilePath(input)
                 return ExpandableContent.Code(content, filePath)
-            }
-        }
-        // Read tools → markdown content from result
-        if (lower in setOf("read", "read_file")) {
-            if (resultContent?.isNotBlank() == true) {
-                return ExpandableContent.Markdown(resultContent)
             }
         }
         // Bash tools → command from input + result output
@@ -1265,6 +1296,78 @@ class ChatController(
             if (diff != null) return computeDiffStats(diff.first, diff.second)
         }
         return 0 to 0
+    }
+
+    /**
+     * Compose readable expandable markdown for agent tools (task/taskoutput).
+     */
+    private fun buildTaskExpandableMarkdown(input: JsonObject, resultContent: String?): String {
+        val description = input["description"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        val prompt = input["prompt"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        val subagentType = input["subagent_type"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        val result = resultContent?.trim().orEmpty()
+
+        return buildString {
+            if (description.isNotBlank()) {
+                appendLine("### Task")
+                appendLine(description)
+            }
+            if (subagentType.isNotBlank()) {
+                if (isNotEmpty()) appendLine()
+                append("**Subagent:** `")
+                append(subagentType)
+                appendLine("`")
+            }
+            if (prompt.isNotBlank()) {
+                if (isNotEmpty()) appendLine()
+                appendLine("### Prompt")
+                appendLine(prompt)
+            }
+            if (result.isNotBlank()) {
+                if (isNotEmpty()) appendLine()
+                appendLine("### Result")
+                appendLine(result)
+            }
+        }.trim()
+    }
+
+    /**
+     * Extract plan markdown from ExitPlanMode tool input when SDK provides it there.
+     * Keeps parsing permissive because schema may vary across SDK versions.
+     */
+    private fun extractPlanMarkdownFromInput(input: JsonObject): String? {
+        val keys = listOf("plan", "plan_markdown", "planMarkdown", "markdown", "content", "text", "message")
+        val candidates = mutableListOf<String>()
+
+        fun addCandidate(value: String?) {
+            val normalized = value?.trim().orEmpty()
+            if (normalized.isNotBlank()) {
+                candidates.add(normalized)
+            }
+        }
+
+        fun extractFromElement(element: JsonElement) {
+            when (element) {
+                is JsonPrimitive -> addCandidate(element.contentOrNull)
+                is JsonArray -> {
+                    val joined = element.joinToString("\n") { entry ->
+                        (entry as? JsonPrimitive)?.contentOrNull ?: ""
+                    }
+                    addCandidate(joined)
+                }
+                is JsonObject -> {
+                    addCandidate((element["markdown"] as? JsonPrimitive)?.contentOrNull)
+                    addCandidate((element["text"] as? JsonPrimitive)?.contentOrNull)
+                    addCandidate((element["plan"] as? JsonPrimitive)?.contentOrNull)
+                }
+            }
+        }
+
+        for (key in keys) {
+            input[key]?.let { extractFromElement(it) }
+        }
+
+        return candidates.maxByOrNull { it.length }
     }
 
     override fun dispose() {

@@ -30,10 +30,37 @@ import javax.swing.SwingUtilities
 class ChatViewModel {
     private val log = Logger.getInstance(ChatViewModel::class.java)
 
+    /**
+     * Hot-path fields that change frequently during streaming.
+     * Used for selective notification — the Compose bridge only updates
+     * the specific `mutableStateOf` that actually changed.
+     */
+    enum class Field {
+        MESSAGES,
+        STREAMING_RESPONSE,
+        STREAMING_THINKING,
+        STREAMING_CONTENT_FLOW,
+        IS_STREAMING,
+        IS_SENDING,
+        THINKING_COLLAPSED,
+        SCROLL_TRIGGER,
+        FORCE_SCROLL_TRIGGER,
+        TODOS,
+        FILE_CHANGES,
+        AGENTS,
+    }
+
+    // ── Generic listeners (Swing compatibility) ────────────────────────────
     private val listeners = CopyOnWriteArrayList<() -> Unit>()
 
     fun addListener(listener: () -> Unit) { listeners.add(listener) }
     fun removeListener(listener: () -> Unit) { listeners.remove(listener) }
+
+    // ── Field-level listeners (Compose bridge) ─────────────────────────────
+    private val fieldListeners = CopyOnWriteArrayList<(Field) -> Unit>()
+
+    fun addFieldListener(listener: (Field) -> Unit) { fieldListeners.add(listener) }
+    fun removeFieldListener(listener: (Field) -> Unit) { fieldListeners.remove(listener) }
 
     /** Always notify on EDT — listeners update Compose state which requires EDT. */
     private fun notifyListeners() {
@@ -41,6 +68,22 @@ class ChatViewModel {
             listeners.forEach { it() }
         } else {
             SwingUtilities.invokeLater { listeners.forEach { it() } }
+        }
+    }
+
+    /**
+     * Selective notification for hot-path fields.
+     * Field listeners get the specific field; generic listeners still fire for Swing compat.
+     */
+    private fun notifyField(field: Field) {
+        if (SwingUtilities.isEventDispatchThread()) {
+            fieldListeners.forEach { it(field) }
+            listeners.forEach { it() }
+        } else {
+            SwingUtilities.invokeLater {
+                fieldListeners.forEach { it(field) }
+                listeners.forEach { it() }
+            }
         }
     }
 
@@ -69,22 +112,22 @@ class ChatViewModel {
     // ── Messages ─────────────────────────────────────────────────────────────
 
     var messages: List<Message> = emptyList()
-        set(value) { field = value; notifyListeners() }
+        set(value) { field = value; notifyField(Field.MESSAGES) }
 
     // ── Streaming State ──────────────────────────────────────────────────────
 
     var isSending: Boolean = false
-        set(value) { field = value; notifyListeners() }
+        set(value) { field = value; notifyField(Field.IS_SENDING) }
     var isStreaming: Boolean = false
-        set(value) { field = value; notifyListeners() }
+        set(value) { field = value; notifyField(Field.IS_STREAMING) }
     var streamingThinkingText: String = ""
-        set(value) { field = value; notifyListeners() }
+        set(value) { field = value; notifyField(Field.STREAMING_THINKING) }
     var streamingResponseText: String = ""
-        set(value) { field = value; notifyListeners() }
+        set(value) { field = value; notifyField(Field.STREAMING_RESPONSE) }
     var streamingContentFlow: List<ContentFlowItem> = emptyList()
-        set(value) { field = value; notifyListeners() }
+        set(value) { field = value; notifyField(Field.STREAMING_CONTENT_FLOW) }
     var thinkingCollapsed: Boolean = false
-        set(value) { field = value; notifyListeners() }
+        set(value) { field = value; notifyField(Field.THINKING_COLLAPSED) }
 
     // ── Input Panel State ────────────────────────────────────────────────────
 
@@ -120,11 +163,11 @@ class ChatViewModel {
     // ── Status Panel State ───────────────────────────────────────────────────
 
     var todos: List<TodoItem> = emptyList()
-        set(value) { field = value; notifyListeners() }
+        set(value) { field = value; notifyField(Field.TODOS) }
     var fileChanges: List<FileChangeSummary> = emptyList()
-        set(value) { field = value; notifyListeners() }
+        set(value) { field = value; notifyField(Field.FILE_CHANGES) }
     var agents: List<SubagentInfo> = emptyList()
-        set(value) { field = value; notifyListeners() }
+        set(value) { field = value; notifyField(Field.AGENTS) }
 
     // ── Queue ────────────────────────────────────────────────────────────────
 
@@ -211,7 +254,16 @@ class ChatViewModel {
 
     fun requestScrollToBottom() {
         scrollToBottomTrigger++
-        notifyListeners()
+        notifyField(Field.SCROLL_TRIGGER)
+    }
+
+    /** Explicit, one-shot bottom snap (used for session load/restore). */
+    var forceScrollToBottomTrigger: Int = 0
+        private set
+
+    fun requestForceScrollToBottom() {
+        forceScrollToBottomTrigger++
+        notifyField(Field.FORCE_SCROLL_TRIGGER)
     }
 }
 

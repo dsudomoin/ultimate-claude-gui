@@ -24,7 +24,7 @@
     <extensions defaultExtensionNs="com.intellij">
         <!-- Tool Window -->
         <toolWindow id="Claude Code" anchor="right"
-                    icon="AllIcons.Toolwindows.ToolWindowPalette"
+                    icon="/icons/cc-gui-icon.svg"
                     canCloseContents="true"
                     factoryClass="ru.dsudomoin.claudecodegui.ui.toolwindow.ClaudeToolWindowFactory"/>
 
