@@ -11,6 +11,7 @@ import org.jetbrains.jewel.intui.markdown.bridge.ProvideMarkdownStyling
 import org.jetbrains.jewel.intui.markdown.bridge.create
 import org.jetbrains.jewel.intui.markdown.bridge.styling.create
 import org.jetbrains.jewel.intui.markdown.bridge.styling.extensions.github.tables.create
+import org.jetbrains.jewel.markdown.extensions.github.tables.GfmTableColors
 import org.jetbrains.jewel.markdown.extensions.github.tables.GfmTableStyling
 import org.jetbrains.jewel.markdown.extensions.github.tables.GitHubTableProcessorExtension
 import org.jetbrains.jewel.markdown.extensions.github.tables.GitHubTableRendererExtension
@@ -19,6 +20,7 @@ import org.jetbrains.jewel.markdown.rendering.InlinesStyling
 import org.jetbrains.jewel.markdown.rendering.MarkdownBlockRenderer
 import org.jetbrains.jewel.markdown.rendering.MarkdownStyling
 import ru.dsudomoin.claudecodegui.ui.compose.theme.ClaudeComposeTheme
+import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
 import javax.swing.JComponent
 
 /**
@@ -48,14 +50,17 @@ fun createThemedComposePanel(content: @Composable () -> Unit): JComponent {
  */
 @Composable
 private fun ConfiguredMarkdownStyling(content: @Composable () -> Unit) {
+    val colors = LocalClaudeColors.current
+
     // 1. Create base bridge styling
     val baseStyling = MarkdownStyling.create()
 
     // 2. Fix inline code size — use Unspecified so it inherits surrounding font size
     val baseInlines = baseStyling.baseInlinesStyling
+    val fixedTextStyle = baseInlines.textStyle.copy(color = colors.textPrimary)
     val fixedInlineCode = baseInlines.inlineCode.copy(fontSize = TextUnit.Unspecified)
     val fixedInlines = InlinesStyling(
-        textStyle = baseInlines.textStyle,
+        textStyle = fixedTextStyle,
         inlineCode = fixedInlineCode,
         link = baseInlines.link,
         linkDisabled = baseInlines.linkDisabled,
@@ -67,11 +72,26 @@ private fun ConfiguredMarkdownStyling(content: @Composable () -> Unit) {
         strongEmphasis = baseInlines.strongEmphasis,
         inlineHtml = baseInlines.inlineHtml,
     )
-    val fixedStyling = MarkdownStyling.create(inlinesStyling = fixedInlines)
+    val fixedBlockQuote = MarkdownStyling.BlockQuote.create(
+        lineColor = colors.quoteBorder,
+        textColor = colors.textPrimary,
+    )
+    val fixedStyling = MarkdownStyling.create(
+        inlinesStyling = fixedInlines,
+        blockQuote = fixedBlockQuote,
+    )
 
     // 3. Create GFM table extensions — wrapped in remember to avoid
     //    recomposition issues (MarkdownProcessor has internal mutable state)
-    val tableStyling = remember { GfmTableStyling.create() }
+    val tableStyling = remember(colors.borderNormal, colors.surfacePrimary, colors.surfaceSecondary) {
+        GfmTableStyling.create(
+            colors = GfmTableColors.create(
+                borderColor = colors.borderNormal,
+                rowBackgroundColor = colors.surfacePrimary,
+                alternateRowBackgroundColor = colors.surfaceSecondary,
+            ),
+        )
+    }
     val tableRendererExt = remember(tableStyling, fixedStyling) {
         GitHubTableRendererExtension(tableStyling, fixedStyling)
     }

@@ -36,6 +36,7 @@ object ToolSummaryExtractor {
             lower == "movefile" -> UcuBundle.message("tool.moveFile")
             lower == "copyfile" -> UcuBundle.message("tool.copyFile")
             lower in setOf("skill", "useskill", "runskill", "run_skill", "execute_skill") -> UcuBundle.message("tool.skill")
+            lower == "enterplanmode" -> UcuBundle.message("tool.enterPlanMode")
             lower == "exitplanmode" -> UcuBundle.message("tool.exitPlanMode")
             lower.startsWith("mcp__") -> UcuBundle.message("tool.mcp")
             else -> toolName

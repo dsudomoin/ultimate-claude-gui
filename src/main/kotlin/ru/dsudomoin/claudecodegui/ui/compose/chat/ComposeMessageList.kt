@@ -1,5 +1,9 @@
 package ru.dsudomoin.claudecodegui.ui.compose.chat
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
@@ -11,20 +15,21 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollbarAdapter
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
@@ -55,7 +60,7 @@ import java.util.Date
 @Composable
 fun ComposeMessageList(
     messages: List<Message>,
-    listState: LazyListState,
+    scrollState: ScrollState,
     isStreaming: Boolean = false,
     streamingState: StreamingState? = null,
     streamingContentFlow: List<ContentFlowItem>? = null,
@@ -106,34 +111,45 @@ fun ComposeMessageList(
         return
     }
 
-    LazyColumn(
-        state = listState,
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-    ) {
-        itemsIndexed(messages, key = { index, msg -> "${index}_${msg.timestamp}" }) { index, message ->
-            val prevRole = if (index > 0) messages[index - 1].role else null
+    Box(modifier = modifier.fillMaxSize()) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .padding(start = 8.dp, end = 14.dp, top = 6.dp, bottom = 6.dp),
+        ) {
+            messages.forEachIndexed { index, message ->
+                val prevRole = if (index > 0) messages[index - 1].role else null
 
-            // Separator between role transitions
-            if (prevRole != null && prevRole != message.role) {
-                MessageSeparator()
+                if (prevRole != null && prevRole != message.role) {
+                    MessageSeparator()
+                }
+
+                val isLastMessage = index == messages.lastIndex
+                val isStreamingBubble = isLastMessage && message.role == Role.ASSISTANT
+
+                MessageWrapper(
+                    message = message,
+                    streaming = isStreamingBubble,
+                    streamingState = if (isStreamingBubble) streamingState else null,
+                    contentFlow = if (isStreamingBubble) streamingContentFlow else null,
+                    onFileClick = onFileClick,
+                    onToolShowDiff = onToolShowDiff,
+                    onToolRevert = onToolRevert,
+                )
             }
-
-            val isLastMessage = index == messages.lastIndex
-            val isStreamingBubble = isStreaming && isLastMessage && message.role == Role.ASSISTANT
-
-            MessageWrapper(
-                message = message,
-                streaming = isStreamingBubble,
-                streamingState = if (isStreamingBubble) streamingState else null,
-                contentFlow = if (isStreamingBubble) streamingContentFlow else null,
-                onFileClick = onFileClick,
-                onToolShowDiff = onToolShowDiff,
-                onToolRevert = onToolRevert,
-            )
+            // Scroll anchor
+            Spacer(Modifier.height(1.dp))
         }
+
+        VerticalScrollbar(
+            adapter = rememberScrollbarAdapter(scrollState),
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .fillMaxHeight()
+                .width(12.dp),
+        )
     }
 }
 
@@ -180,7 +196,13 @@ private fun MessageWrapper(
         }
 
         Role.ASSISTANT -> {
-            Box(modifier = Modifier.fillMaxWidth()) {
+            val messageInteraction = remember { MutableInteractionSource() }
+            val messageHovered by messageInteraction.collectIsHoveredAsState()
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .hoverable(messageInteraction),
+            ) {
                 ComposeMessageBubble(
                     message = message,
                     streaming = streaming,
@@ -199,6 +221,7 @@ private fun MessageWrapper(
                         CopyButton(
                             text = message.textContent,
                             alwaysVisible = false,
+                            forceVisible = messageHovered,
                         )
                     }
                 }
@@ -214,23 +237,35 @@ private fun MessageWrapper(
 private fun CopyButton(
     text: String,
     alwaysVisible: Boolean,
+    forceVisible: Boolean = false,
 ) {
     val colors = LocalClaudeColors.current
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
+    val visibleTarget = if (alwaysVisible || forceVisible || isHovered) 1f else 0f
+    val buttonAlpha by animateFloatAsState(
+        targetValue = visibleTarget,
+        animationSpec = tween(durationMillis = 140),
+        label = "copy-button-alpha",
+    )
+    val isVisible = alwaysVisible || forceVisible || isHovered
 
-    // For assistant messages, only show on hover (parent hover will be handled at integration time)
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .size(22.dp)
+            .alpha(buttonAlpha)
             .clip(RoundedCornerShape(4.dp))
             .background(if (isHovered) colors.iconHoverBg else colors.surfacePrimary.copy(alpha = 0f))
             .hoverable(interactionSource)
-            .clickable {
-                Toolkit.getDefaultToolkit().systemClipboard
-                    .setContents(StringSelection(text), null)
-            }
+            .then(
+                if (isVisible) {
+                    Modifier.clickable {
+                        Toolkit.getDefaultToolkit().systemClipboard
+                            .setContents(StringSelection(text), null)
+                    }
+                } else Modifier
+            )
             .pointerHoverIcon(PointerIcon.Hand),
     ) {
         Text(

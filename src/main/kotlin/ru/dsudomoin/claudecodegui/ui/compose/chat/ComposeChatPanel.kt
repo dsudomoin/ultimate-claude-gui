@@ -4,14 +4,14 @@ package ru.dsudomoin.claudecodegui.ui.compose.chat
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -21,6 +21,8 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
 import org.jetbrains.jewel.foundation.ExperimentalJewelApi
 import ru.dsudomoin.claudecodegui.ui.compose.approval.ComposeApprovalPanel
 import ru.dsudomoin.claudecodegui.ui.compose.dialog.ComposePlanActionPanel
@@ -104,26 +106,57 @@ fun ComposeChatPanel(
     onTitleChange: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    // ── Bridge: observe ChatViewModel via listener → trigger recomposition ──
-    // A revision counter is incremented on every viewModel change.
-    // Reading it forces Compose to recompose and re-read viewModel properties.
-    var revision by remember { mutableIntStateOf(0) }
+    // ── Bridge: observe ChatViewModel via selective field listeners ──────────
+    // Hot-path fields get individual mutableStateOf holders — only the changed
+    // field triggers recomposition of composables that read it.
+    // Cold-path fields (UI settings, setup, enhancer, etc.) share a single
+    // revision counter — they change rarely and can afford a full re-read.
+
+    // Hot-path state (updated selectively via field listener)
+    var messages by remember { mutableStateOf(viewModel.messages) }
+    var isStreaming by remember { mutableStateOf(viewModel.isStreaming) }
+    var isSending by remember { mutableStateOf(viewModel.isSending) }
+    var streamingThinkingText by remember { mutableStateOf(viewModel.streamingThinkingText) }
+    var streamingResponseText by remember { mutableStateOf(viewModel.streamingResponseText) }
+    var streamingContentFlow by remember { mutableStateOf(viewModel.streamingContentFlow) }
+    var thinkingCollapsed by remember { mutableStateOf(viewModel.thinkingCollapsed) }
+    var scrollToBottomTrigger by remember { mutableIntStateOf(viewModel.scrollToBottomTrigger) }
+    var forceScrollToBottomTrigger by remember { mutableIntStateOf(viewModel.forceScrollToBottomTrigger) }
+    var todos by remember { mutableStateOf(viewModel.todos) }
+    var fileChanges by remember { mutableStateOf(viewModel.fileChanges) }
+    var agents by remember { mutableStateOf(viewModel.agents) }
+
+    // Cold-path revision counter (for all other, rarely-changing properties)
+    var coldRevision by remember { mutableIntStateOf(0) }
+
     DisposableEffect(viewModel) {
-        val listener: () -> Unit = { revision++ }
-        viewModel.addListener(listener)
-        onDispose { viewModel.removeListener(listener) }
+        val fieldListener: (ChatViewModel.Field) -> Unit = { field ->
+            when (field) {
+                ChatViewModel.Field.MESSAGES -> messages = viewModel.messages
+                ChatViewModel.Field.IS_STREAMING -> isStreaming = viewModel.isStreaming
+                ChatViewModel.Field.IS_SENDING -> isSending = viewModel.isSending
+                ChatViewModel.Field.STREAMING_THINKING -> streamingThinkingText = viewModel.streamingThinkingText
+                ChatViewModel.Field.STREAMING_RESPONSE -> streamingResponseText = viewModel.streamingResponseText
+                ChatViewModel.Field.STREAMING_CONTENT_FLOW -> streamingContentFlow = viewModel.streamingContentFlow
+                ChatViewModel.Field.THINKING_COLLAPSED -> thinkingCollapsed = viewModel.thinkingCollapsed
+                ChatViewModel.Field.SCROLL_TRIGGER -> scrollToBottomTrigger = viewModel.scrollToBottomTrigger
+                ChatViewModel.Field.FORCE_SCROLL_TRIGGER -> forceScrollToBottomTrigger = viewModel.forceScrollToBottomTrigger
+                ChatViewModel.Field.TODOS -> todos = viewModel.todos
+                ChatViewModel.Field.FILE_CHANGES -> fileChanges = viewModel.fileChanges
+                ChatViewModel.Field.AGENTS -> agents = viewModel.agents
+            }
+        }
+        val coldListener: () -> Unit = { coldRevision++ }
+        viewModel.addFieldListener(fieldListener)
+        viewModel.addListener(coldListener)
+        onDispose {
+            viewModel.removeFieldListener(fieldListener)
+            viewModel.removeListener(coldListener)
+        }
     }
 
-    // Read all values from viewModel (recompose triggered by revision change).
-    // The `revision` variable is read here to establish the dependency.
-    @Suppress("UNUSED_EXPRESSION") revision
-    val messages = viewModel.messages
-    val isStreaming = viewModel.isStreaming
-    val isSending = viewModel.isSending
-    val streamingThinkingText = viewModel.streamingThinkingText
-    val streamingResponseText = viewModel.streamingResponseText
-    val streamingContentFlow = viewModel.streamingContentFlow
-    val thinkingCollapsed = viewModel.thinkingCollapsed
+    // Cold-path properties: re-read only when coldRevision changes.
+    @Suppress("UNUSED_EXPRESSION") coldRevision
     val inputText = viewModel.inputText
     val selectedModelName = viewModel.selectedModelName
     val selectedModelId = viewModel.selectedModelId
@@ -137,16 +170,12 @@ fun ComposeChatPanel(
     val mentionedFiles = viewModel.mentionedFiles
     val mentionPopupVisible = viewModel.mentionPopupVisible
     val mentionSuggestions = viewModel.mentionSuggestions
-    val todos = viewModel.todos
-    val fileChanges = viewModel.fileChanges
-    val agents = viewModel.agents
     val queueItems = viewModel.queueItems
     val questionPanelVisible = viewModel.questionPanelVisible
     val currentQuestions = viewModel.currentQuestions
     val planPanelVisible = viewModel.planPanelVisible
     val planMarkdown = viewModel.planMarkdown
     val pendingApproval = viewModel.pendingApproval
-    val scrollToBottomTrigger = viewModel.scrollToBottomTrigger
     val setupStatus = viewModel.setupStatus
     val setupInstalling = viewModel.setupInstalling
     val setupError = viewModel.setupError
@@ -164,45 +193,117 @@ fun ComposeChatPanel(
     val sessionTitleVisible = viewModel.sessionTitleVisible
     val statusPanelVisible = viewModel.statusPanelVisible
 
-    val listState = rememberLazyListState()
+    val scrollState = rememberScrollState()
+    var followTail by remember { mutableStateOf(true) }
+    var autoScrollInProgress by remember { mutableStateOf(false) }
+    var userInteracted by remember { mutableStateOf(false) }
+    var initialBottomSnapDone by remember { mutableStateOf(false) }
+    var pendingForceScrollTrigger by remember { mutableIntStateOf(0) }
+    val datasetKey = messages.firstOrNull()?.timestamp
 
-    // ── Auto-scroll with pause support (feature 57) ─────────────────────────
-    var autoScrollEnabled by remember { mutableStateOf(true) }
-
-    val isAtBottom by remember {
-        derivedStateOf {
-            val info = listState.layoutInfo
-            val lastIndex = info.totalItemsCount - 1
-            if (lastIndex < 0) true
-            else info.visibleItemsInfo.any { it.index == lastIndex }
+    suspend fun scrollToBottom(force: Boolean = false) {
+        if (!force && !followTail) return
+        val target = scrollState.maxValue
+        if (!force && target - scrollState.value <= 2) return
+        autoScrollInProgress = true
+        try {
+            scrollState.scrollTo(target)
+        } finally {
+            autoScrollInProgress = false
         }
     }
 
-    // Resume auto-scroll when user scrolls back to bottom
-    LaunchedEffect(isAtBottom) {
-        if (isAtBottom) autoScrollEnabled = true
+    // Reset follow state for a newly loaded dataset/session.
+    LaunchedEffect(datasetKey) {
+        followTail = true
+        userInteracted = false
+        initialBottomSnapDone = false
     }
 
-    // Pause auto-scroll when user scrolls up during active scroll
-    LaunchedEffect(Unit) {
-        snapshotFlow { listState.isScrollInProgress to isAtBottom }
-            .collect { (scrolling, atBottom) ->
-                if (scrolling && !atBottom) autoScrollEnabled = false
+    // Detect user intent from actual scroll position changes.
+    LaunchedEffect(scrollState) {
+        snapshotFlow { Triple(scrollState.value, scrollState.maxValue, scrollState.isScrollInProgress) }
+            .distinctUntilChanged()
+            .collect { (value, maxValue, isScrollInProgress) ->
+                val nearBottom = (maxValue - value) <= 24
+                if (nearBottom) {
+                    followTail = true
+                } else if (isScrollInProgress && !autoScrollInProgress) {
+                    followTail = false
+                    userInteracted = true
+                }
             }
     }
 
-    // Explicit scroll request (session load) — always honors
-    LaunchedEffect(scrollToBottomTrigger) {
-        if (messages.isNotEmpty()) {
-            autoScrollEnabled = true
-            listState.scrollToItem(messages.size - 1)
+    // Initial snap-to-bottom for loaded history/session after real layout.
+    LaunchedEffect(datasetKey, scrollState.maxValue, messages.size) {
+        if (messages.isEmpty() || initialBottomSnapDone || userInteracted) return@LaunchedEffect
+        when {
+            scrollState.maxValue > 0 -> {
+                scrollToBottom(force = true)
+                initialBottomSnapDone = true
+            }
+            messages.size <= 2 -> {
+                initialBottomSnapDone = true
+            }
         }
     }
 
-    // Auto-scroll on new messages or streaming updates — only when enabled
-    LaunchedEffect(messages.size, streamingResponseText.length, streamingThinkingText.length) {
-        if (messages.isNotEmpty() && autoScrollEnabled) {
-            listState.animateScrollToItem(messages.size - 1)
+    // Explicit bottom requests from controller (send/load flow) while generating.
+    LaunchedEffect(scrollToBottomTrigger, isStreaming, isSending) {
+        if (scrollToBottomTrigger > 0 && (isStreaming || isSending || !userInteracted) && followTail) {
+            scrollToBottom(force = true)
+        }
+    }
+
+    // Capture explicit force-scroll requests (session load/restore) and apply them
+    // after the list has a real scroll range.
+    LaunchedEffect(forceScrollToBottomTrigger) {
+        if (forceScrollToBottomTrigger > 0) {
+            pendingForceScrollTrigger = forceScrollToBottomTrigger
+        }
+    }
+
+    LaunchedEffect(pendingForceScrollTrigger) {
+        if (pendingForceScrollTrigger <= 0) return@LaunchedEffect
+        followTail = true
+        userInteracted = false
+
+        // Session history can expand layout in several passes (markdown/tool blocks).
+        // Keep snapping to tail until scroll range stabilizes.
+        delay(16)
+        var lastMaxValue = -1
+        var stableTicks = 0
+        var ticks = 0
+        while (ticks < 100) {
+            val maxValue = scrollState.maxValue
+            if (maxValue == lastMaxValue) {
+                stableTicks++
+            } else {
+                lastMaxValue = maxValue
+                stableTicks = 0
+            }
+
+            if (messages.isNotEmpty()) {
+                scrollToBottom(force = true)
+            }
+
+            if (messages.isNotEmpty() && stableTicks >= 6) {
+                break
+            }
+            delay(20)
+            ticks++
+        }
+
+        scrollToBottom(force = true)
+        initialBottomSnapDone = true
+        pendingForceScrollTrigger = 0
+    }
+
+    // Keep tail pinned during streaming updates if user didn't scroll away.
+    LaunchedEffect(messages.size, streamingResponseText.length, streamingThinkingText.length, streamingContentFlow.size, isStreaming, isSending) {
+        if (isStreaming || isSending) {
+            scrollToBottom(force = false)
         }
     }
 
@@ -220,7 +321,7 @@ fun ComposeChatPanel(
             Box(modifier = Modifier.weight(1f)) {
                 ComposeMessageList(
                     messages = messages,
-                    listState = listState,
+                    scrollState = scrollState,
                     isStreaming = isStreaming,
                     streamingState = if (isStreaming) StreamingState(
                         thinkingText = streamingThinkingText,
@@ -261,6 +362,7 @@ fun ComposeChatPanel(
                             onDeny = onPlanDeny,
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .fillMaxHeight()
                                 .padding(horizontal = 8.dp, vertical = 8.dp),
                         )
                     }

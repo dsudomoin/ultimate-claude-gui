@@ -48,7 +48,11 @@ fun ComposeThinkingPanel(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalClaudeColors.current
-    var collapsed by remember { mutableStateOf(false) }
+    // Initialize from current mode to avoid one-frame height jump when
+    // historical (finished) messages first enter the viewport.
+    var collapsed by remember(isFinished, isStreaming) {
+        mutableStateOf(isFinished && !isStreaming)
+    }
 
     // Auto-expand when streaming starts, auto-collapse when finished
     LaunchedEffect(isStreaming, isFinished) {

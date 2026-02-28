@@ -151,7 +151,8 @@ fun ComposePlanActionPanel(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 60.dp, max = 300.dp)
+                    .heightIn(min = 60.dp)
+                    .weight(1f, fill = true)
                     .verticalScroll(rememberScrollState())
                     .padding(12.dp),
             ) {
