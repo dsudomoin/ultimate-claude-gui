@@ -79,6 +79,8 @@ fun ComposeChatPanel(
     onPromptSuggestionSelect: (String) -> Unit = {},
     // ── File navigation callback ──
     onFileClick: ((String) -> Unit)? = null,
+    // ── URL click callback (ide-file:// + browser) ──
+    onUrlClick: ((String) -> Unit)? = null,
     // ── Tool action callbacks ──
     onToolShowDiff: ((ExpandableContent) -> Unit)? = null,
     onToolRevert: ((ExpandableContent) -> Unit)? = null,
@@ -263,9 +265,10 @@ fun ComposeChatPanel(
         snapshotFlow { Triple(scrollState.value, scrollState.maxValue, scrollState.isScrollInProgress) }
             .distinctUntilChanged()
             .collect { (value, maxValue, isScrollInProgress) ->
-                val nearBottom = (maxValue - value) <= 24
+                val hasRealViewport = maxValue > 0
+                val nearBottom = hasRealViewport && (maxValue - value) <= 24
 
-                if (maxValue > 0) {
+                if (hasRealViewport) {
                     lastKnownScrollValue = value
                     lastKnownScrollMaxValue = maxValue
                     wasNearBottomBeforeCollapse = nearBottom
@@ -282,12 +285,8 @@ fun ComposeChatPanel(
                     } else {
                         autoScrollInProgress = true
                         try {
-                            val ratio = if (lastKnownScrollMaxValue > 0) {
-                                lastKnownScrollValue.toFloat() / lastKnownScrollMaxValue.toFloat()
-                            } else {
-                                0f
-                            }
-                            val target = (ratio * maxValue).toInt().coerceIn(0, maxValue)
+                            // Preserve absolute scroll offset on viewport restore.
+                            val target = lastKnownScrollValue.coerceIn(0, maxValue)
                             scrollState.scrollTo(target)
                         } finally {
                             autoScrollInProgress = false
@@ -296,11 +295,14 @@ fun ComposeChatPanel(
                     pendingViewportRestore = false
                 }
 
-                if (nearBottom) {
-                    followTail = true
-                } else if (isScrollInProgress && !autoScrollInProgress) {
-                    followTail = false
-                    userInteracted = true
+                // Ignore synthetic zero-viewport updates (window hidden / tab switched).
+                if (hasRealViewport) {
+                    if (nearBottom) {
+                        followTail = true
+                    } else if (isScrollInProgress && !autoScrollInProgress) {
+                        followTail = false
+                        userInteracted = true
+                    }
                 }
             }
     }
@@ -401,6 +403,7 @@ fun ComposeChatPanel(
                     ) else null,
                     streamingContentFlow = if (isStreaming) streamingContentFlow else null,
                     onFileClick = onFileClick,
+                    onUrlClick = onUrlClick,
                     onToolShowDiff = onToolShowDiff,
                     onToolRevert = onToolRevert,
                     onStopTask = onStopTask,

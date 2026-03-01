@@ -1,22 +1,36 @@
 package ru.dsudomoin.claudecodegui.ui.toolwindow
 
-import ru.dsudomoin.claudecodegui.UcuBundle
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.actionSystem.*
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.fileChooser.FileChooser
+import com.intellij.openapi.fileChooser.FileChooserDescriptor
+import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.FileEditorManagerEvent
+import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.options.ShowSettingsUtil
+import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.project.guessProjectDir
+import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.content.ContentFactory
 import com.intellij.ui.content.ContentManagerEvent
 import com.intellij.ui.content.ContentManagerListener
+import kotlinx.coroutines.*
+import ru.dsudomoin.claudecodegui.UcuBundle
+import ru.dsudomoin.claudecodegui.core.session.SessionManager
 import ru.dsudomoin.claudecodegui.service.ProjectFileIndexService
+import ru.dsudomoin.claudecodegui.service.PromptEnhancer
 import ru.dsudomoin.claudecodegui.service.SettingsService
 import ru.dsudomoin.claudecodegui.ui.chat.ChatController
+import ru.dsudomoin.claudecodegui.ui.compose.markdown.FilePathLinkHandler
 import ru.dsudomoin.claudecodegui.ui.compose.input.AttachedImageData
 import ru.dsudomoin.claudecodegui.ui.compose.input.FileContextData
 import ru.dsudomoin.claudecodegui.ui.compose.input.MentionChipData
@@ -24,28 +38,15 @@ import ru.dsudomoin.claudecodegui.ui.compose.input.MentionSuggestionData
 import ru.dsudomoin.claudecodegui.ui.compose.toolwindow.ChatCallbacks
 import ru.dsudomoin.claudecodegui.ui.compose.toolwindow.createComposeChatPanel
 import ru.dsudomoin.claudecodegui.ui.diff.InteractiveDiffManager
-import ru.dsudomoin.claudecodegui.service.PromptEnhancer
 import ru.dsudomoin.claudecodegui.ui.theme.ThemeManager
-import ru.dsudomoin.claudecodegui.core.session.SessionManager
-import com.intellij.openapi.fileChooser.FileChooser
-import com.intellij.openapi.fileChooser.FileChooserDescriptor
-import com.intellij.openapi.fileEditor.FileEditorManager
-import com.intellij.openapi.fileEditor.FileEditorManagerEvent
-import com.intellij.openapi.fileEditor.FileEditorManagerListener
-import com.intellij.openapi.vfs.LocalFileSystem
-import com.intellij.openapi.vfs.VirtualFile
-import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
 import java.awt.BorderLayout
+import java.lang.Runnable
+import java.lang.System
 import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
 
-class ClaudeToolWindowFactory : ToolWindowFactory {
+class ClaudeToolWindowFactory : ToolWindowFactory, DumbAware {
 
     private val tabCounter = AtomicInteger(0)
 
@@ -262,6 +263,7 @@ class ChatContainerPanel(
             controller.applyPromptSuggestion(suggestion)
         },
         onFileClick = { path -> openFileInEditor(path) },
+        onUrlClick = { url -> FilePathLinkHandler.handleUrlClick(url, project) },
         onToolShowDiff = { expandable ->
             when (expandable) {
                 is ru.dsudomoin.claudecodegui.ui.compose.chat.ExpandableContent.Diff -> {

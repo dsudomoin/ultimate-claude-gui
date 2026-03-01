@@ -94,6 +94,7 @@ fun ComposeMessageBubble(
     streamingState: StreamingState? = null,
     contentFlow: List<ContentFlowItem>? = null,
     onFileClick: ((String) -> Unit)? = null,
+    onUrlClick: ((String) -> Unit)? = null,
     onToolShowDiff: ((ExpandableContent) -> Unit)? = null,
     onToolRevert: ((ExpandableContent) -> Unit)? = null,
     onStopTask: ((String) -> Unit)? = null,
@@ -107,6 +108,7 @@ fun ComposeMessageBubble(
             streamingState = streamingState,
             contentFlow = contentFlow,
             onFileClick = onFileClick,
+            onUrlClick = onUrlClick,
             onToolShowDiff = onToolShowDiff,
             onToolRevert = onToolRevert,
             onStopTask = onStopTask,
@@ -211,6 +213,7 @@ private fun AssistantBubble(
     streamingState: StreamingState?,
     contentFlow: List<ContentFlowItem>?,
     onFileClick: ((String) -> Unit)?,
+    onUrlClick: ((String) -> Unit)?,
     onToolShowDiff: ((ExpandableContent) -> Unit)?,
     onToolRevert: ((ExpandableContent) -> Unit)?,
     onStopTask: ((String) -> Unit)?,
@@ -228,6 +231,7 @@ private fun AssistantBubble(
                 state = streamingState,
                 contentFlow = contentFlow.orEmpty(),
                 onFileClick = onFileClick,
+                onUrlClick = onUrlClick,
                 onToolShowDiff = onToolShowDiff,
                 onToolRevert = onToolRevert,
                 onStopTask = onStopTask,
@@ -237,6 +241,7 @@ private fun AssistantBubble(
             FinishedAssistantContent(
                 message = message,
                 onFileClick = onFileClick,
+                onUrlClick = onUrlClick,
                 onToolShowDiff = onToolShowDiff,
                 onToolRevert = onToolRevert,
             )
@@ -249,15 +254,11 @@ private fun StreamingAssistantContent(
     state: StreamingState,
     contentFlow: List<ContentFlowItem>,
     onFileClick: ((String) -> Unit)?,
+    onUrlClick: ((String) -> Unit)? = null,
     onToolShowDiff: ((ExpandableContent) -> Unit)? = null,
     onToolRevert: ((ExpandableContent) -> Unit)? = null,
     onStopTask: ((String) -> Unit)? = null,
 ) {
-    // Timer row
-    if (state.isTimerRunning) {
-        StreamingTimerRow()
-    }
-
     // Thinking panel (collapsible, with streaming animation)
     if (state.isThinkingVisible && state.thinkingText.isNotEmpty()) {
         ComposeThinkingSection(
@@ -277,11 +278,11 @@ private fun StreamingAssistantContent(
                         key("text_$index") {
                             if (index == lastTextIndex) {
                                 // Live (growing) segment — always re-render
-                                ComposeMarkdownContent(markdown = item.text, selectable = false)
+                                ComposeMarkdownContent(markdown = item.text, onUrlClick = onUrlClick ?: {}, selectable = false)
                             } else {
                                 // Frozen segment (before tools) — memoize to avoid re-parse
                                 val memoizedText = remember(item.text) { item.text }
-                                ComposeMarkdownContent(markdown = memoizedText, selectable = false)
+                                ComposeMarkdownContent(markdown = memoizedText, onUrlClick = onUrlClick ?: {}, selectable = false)
                             }
                         }
                     }
@@ -326,7 +327,12 @@ private fun StreamingAssistantContent(
         }
     } else if (state.responseText.isNotBlank()) {
         // Fallback: show raw response as markdown
-        ComposeMarkdownContent(markdown = state.responseText, selectable = false)
+        ComposeMarkdownContent(markdown = state.responseText, onUrlClick = onUrlClick ?: {}, selectable = false)
+    }
+
+    // Keep "Generating response..." as the bottom-most streaming element.
+    if (state.isTimerRunning) {
+        StreamingTimerRow()
     }
 }
 
@@ -334,6 +340,7 @@ private fun StreamingAssistantContent(
 private fun FinishedAssistantContent(
     message: Message,
     onFileClick: ((String) -> Unit)?,
+    onUrlClick: ((String) -> Unit)? = null,
     onToolShowDiff: ((ExpandableContent) -> Unit)? = null,
     onToolRevert: ((ExpandableContent) -> Unit)? = null,
 ) {
@@ -362,7 +369,7 @@ private fun FinishedAssistantContent(
         when (item) {
             is FinishedRenderItem.MarkdownText -> {
                 key("finished_text_${index}_${item.text.hashCode()}") {
-                    ComposeMarkdownContent(markdown = item.text, selectable = true)
+                    ComposeMarkdownContent(markdown = item.text, onUrlClick = onUrlClick ?: {}, selectable = true)
                 }
             }
             is FinishedRenderItem.CompactBoundaryItem -> {

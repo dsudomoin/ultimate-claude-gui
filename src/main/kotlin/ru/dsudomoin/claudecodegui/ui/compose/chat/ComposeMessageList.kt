@@ -66,6 +66,7 @@ fun ComposeMessageList(
     streamingState: StreamingState? = null,
     streamingContentFlow: List<ContentFlowItem>? = null,
     onFileClick: ((String) -> Unit)? = null,
+    onUrlClick: ((String) -> Unit)? = null,
     onToolShowDiff: ((ExpandableContent) -> Unit)? = null,
     onToolRevert: ((ExpandableContent) -> Unit)? = null,
     onStopTask: ((String) -> Unit)? = null,
@@ -170,6 +171,7 @@ fun ComposeMessageList(
                     streamingState = if (isStreamingBubble) streamingState else null,
                     contentFlow = if (isStreamingBubble) streamingContentFlow else null,
                     onFileClick = onFileClick,
+                    onUrlClick = onUrlClick,
                     onToolShowDiff = onToolShowDiff,
                     onToolRevert = onToolRevert,
                     onStopTask = onStopTask,
@@ -199,6 +201,7 @@ private fun MessageWrapper(
     streamingState: StreamingState?,
     contentFlow: List<ContentFlowItem>?,
     onFileClick: ((String) -> Unit)?,
+    onUrlClick: ((String) -> Unit)? = null,
     onToolShowDiff: ((ExpandableContent) -> Unit)? = null,
     onToolRevert: ((ExpandableContent) -> Unit)? = null,
     onStopTask: ((String) -> Unit)? = null,
@@ -228,6 +231,7 @@ private fun MessageWrapper(
                 ComposeMessageBubble(
                     message = message,
                     onFileClick = onFileClick,
+                    onUrlClick = onUrlClick,
                 )
             }
         }
@@ -246,6 +250,7 @@ private fun MessageWrapper(
                     streamingState = streamingState,
                     contentFlow = contentFlow,
                     onFileClick = onFileClick,
+                    onUrlClick = onUrlClick,
                     onToolShowDiff = onToolShowDiff,
                     onToolRevert = onToolRevert,
                     onStopTask = onStopTask,
