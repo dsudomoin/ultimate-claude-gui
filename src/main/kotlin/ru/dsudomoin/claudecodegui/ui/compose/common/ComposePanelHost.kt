@@ -19,6 +19,7 @@ import org.jetbrains.jewel.markdown.processing.MarkdownProcessor
 import org.jetbrains.jewel.markdown.rendering.InlinesStyling
 import org.jetbrains.jewel.markdown.rendering.MarkdownBlockRenderer
 import org.jetbrains.jewel.markdown.rendering.MarkdownStyling
+import ru.dsudomoin.claudecodegui.ui.compose.markdown.FilePathProcessorExtension
 import ru.dsudomoin.claudecodegui.ui.compose.theme.ClaudeComposeTheme
 import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
 import javax.swing.JComponent
@@ -95,7 +96,7 @@ private fun ConfiguredMarkdownStyling(content: @Composable () -> Unit) {
     val tableRendererExt = remember(tableStyling, fixedStyling) {
         GitHubTableRendererExtension(tableStyling, fixedStyling)
     }
-    val processor = remember { MarkdownProcessor(listOf(GitHubTableProcessorExtension)) }
+    val processor = remember { MarkdownProcessor(listOf(GitHubTableProcessorExtension, FilePathProcessorExtension)) }
     val blockRenderer = remember(fixedStyling, tableRendererExt) {
         MarkdownBlockRenderer.create(fixedStyling, listOf(tableRendererExt))
     }
