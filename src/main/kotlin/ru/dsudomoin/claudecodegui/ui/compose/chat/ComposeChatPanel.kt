@@ -24,7 +24,9 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import org.jetbrains.jewel.foundation.ExperimentalJewelApi
+import kotlinx.serialization.json.JsonElement
 import ru.dsudomoin.claudecodegui.ui.compose.approval.ComposeApprovalPanel
+import ru.dsudomoin.claudecodegui.ui.compose.dialog.ComposeElicitationPanel
 import ru.dsudomoin.claudecodegui.ui.compose.dialog.ComposePlanActionPanel
 import ru.dsudomoin.claudecodegui.ui.compose.dialog.ComposePromptEnhancerDialog
 import ru.dsudomoin.claudecodegui.ui.compose.dialog.ComposeQuestionSelectionPanel
@@ -60,6 +62,8 @@ fun ComposeChatPanel(
     onPasteImage: () -> Boolean = { false },
     onStreamingToggle: () -> Unit,
     onThinkingToggle: () -> Unit,
+    onEffortChange: (String) -> Unit = {},
+    onBetaContextToggle: () -> Unit = {},
     onModelSelect: (String) -> Unit,
     onModeSelect: (String) -> Unit,
     onEnhanceClick: () -> Unit,
@@ -72,11 +76,13 @@ fun ComposeChatPanel(
     onMentionQuery: (String) -> Unit = {},
     onMentionSelect: (Int) -> Unit = {},
     onMentionDismiss: () -> Unit = {},
+    onPromptSuggestionSelect: (String) -> Unit = {},
     // ── File navigation callback ──
     onFileClick: ((String) -> Unit)? = null,
     // ── Tool action callbacks ──
     onToolShowDiff: ((ExpandableContent) -> Unit)? = null,
     onToolRevert: ((ExpandableContent) -> Unit)? = null,
+    onStopTask: ((String) -> Unit)? = null,
     // ── Status callbacks ──
     onStatusFileClick: (String) -> Unit,
     onStatusShowDiff: (FileChangeSummary) -> Unit,
@@ -95,6 +101,9 @@ fun ComposeChatPanel(
     // ── Approval callbacks ──
     onApprovalApprove: () -> Unit,
     onApprovalReject: () -> Unit,
+    // ── Elicitation callbacks ──
+    onElicitationSubmit: (JsonElement) -> Unit = {},
+    onElicitationCancel: () -> Unit = {},
     // ── Setup callbacks ──
     onInstallSdk: () -> Unit = {},
     onInstallNode: () -> Unit = {},
@@ -164,13 +173,18 @@ fun ComposeChatPanel(
     val modeLabel = viewModel.modeLabel
     val streamingEnabled = viewModel.streamingEnabled
     val thinkingEnabled = viewModel.thinkingEnabled
+    val effort = viewModel.effort
+    val betaContext1m = viewModel.betaContext1m
     val contextUsage = viewModel.contextUsage
     val fileContext = viewModel.fileContext
     val attachedImages = viewModel.attachedImages
     val mentionedFiles = viewModel.mentionedFiles
     val mentionPopupVisible = viewModel.mentionPopupVisible
     val mentionSuggestions = viewModel.mentionSuggestions
+    val promptSuggestions = viewModel.promptSuggestions
     val queueItems = viewModel.queueItems
+    val elicitationPanelVisible = viewModel.elicitationPanelVisible
+    val elicitationData = viewModel.elicitationData
     val questionPanelVisible = viewModel.questionPanelVisible
     val currentQuestions = viewModel.currentQuestions
     val planPanelVisible = viewModel.planPanelVisible
@@ -184,6 +198,7 @@ fun ComposeChatPanel(
     val sdkUpdateAvailable = viewModel.sdkUpdateAvailable
     val sdkUpdating = viewModel.sdkUpdating
     val sdkUpdateError = viewModel.sdkUpdateError
+    val nodeVersion = viewModel.nodeVersion
     val enhancerVisible = viewModel.enhancerVisible
     val enhancerOriginalText = viewModel.enhancerOriginalText
     val enhancerEnhancedText = viewModel.enhancerEnhancedText
@@ -192,6 +207,21 @@ fun ComposeChatPanel(
     val sessionTitle = viewModel.sessionTitle
     val sessionTitleVisible = viewModel.sessionTitleVisible
     val statusPanelVisible = viewModel.statusPanelVisible
+    val initModel = viewModel.initModel
+    val initClaudeCodeVersion = viewModel.initClaudeCodeVersion
+    val initToolCount = viewModel.initTools.size
+    val initMcpServerCount = viewModel.initMcpServers.size
+    val initAgentCount = viewModel.initAgents.size
+    val initSkillCount = viewModel.initSkills.size
+    val initPluginCount = viewModel.initPlugins.size
+    val initSlashCommandCount = viewModel.initSlashCommands.size
+    val initPermissionMode = viewModel.initPermissionMode
+    val initFastModeState = viewModel.initFastModeState
+    val initApiKeySource = viewModel.initApiKeySource
+    val initBetasCount = viewModel.initBetas.size
+    val lastResultMeta = viewModel.lastResultMeta
+    val totalInputTokens = lastResultMeta?.modelUsage?.values?.sumOf { it.inputTokens } ?: 0
+    val totalOutputTokens = lastResultMeta?.modelUsage?.values?.sumOf { it.outputTokens } ?: 0
 
     val scrollState = rememberScrollState()
     var followTail by remember { mutableStateOf(true) }
@@ -199,6 +229,10 @@ fun ComposeChatPanel(
     var userInteracted by remember { mutableStateOf(false) }
     var initialBottomSnapDone by remember { mutableStateOf(false) }
     var pendingForceScrollTrigger by remember { mutableIntStateOf(0) }
+    var lastKnownScrollValue by remember { mutableIntStateOf(0) }
+    var lastKnownScrollMaxValue by remember { mutableIntStateOf(0) }
+    var wasNearBottomBeforeCollapse by remember { mutableStateOf(true) }
+    var pendingViewportRestore by remember { mutableStateOf(false) }
     val datasetKey = messages.firstOrNull()?.timestamp
 
     suspend fun scrollToBottom(force: Boolean = false) {
@@ -218,14 +252,50 @@ fun ComposeChatPanel(
         followTail = true
         userInteracted = false
         initialBottomSnapDone = false
+        lastKnownScrollValue = 0
+        lastKnownScrollMaxValue = 0
+        wasNearBottomBeforeCollapse = true
+        pendingViewportRestore = false
     }
 
     // Detect user intent from actual scroll position changes.
-    LaunchedEffect(scrollState) {
+    LaunchedEffect(scrollState, messages.size) {
         snapshotFlow { Triple(scrollState.value, scrollState.maxValue, scrollState.isScrollInProgress) }
             .distinctUntilChanged()
             .collect { (value, maxValue, isScrollInProgress) ->
                 val nearBottom = (maxValue - value) <= 24
+
+                if (maxValue > 0) {
+                    lastKnownScrollValue = value
+                    lastKnownScrollMaxValue = maxValue
+                    wasNearBottomBeforeCollapse = nearBottom
+                } else if (messages.isNotEmpty() && lastKnownScrollMaxValue > 0) {
+                    // Tool window can report zero viewport while hidden/collapsed.
+                    pendingViewportRestore = true
+                }
+
+                if (pendingViewportRestore && maxValue > 0 && messages.isNotEmpty()) {
+                    if (followTail || wasNearBottomBeforeCollapse) {
+                        // Reuse the existing stabilization path that keeps tail pinned
+                        // across several layout passes.
+                        pendingForceScrollTrigger++
+                    } else {
+                        autoScrollInProgress = true
+                        try {
+                            val ratio = if (lastKnownScrollMaxValue > 0) {
+                                lastKnownScrollValue.toFloat() / lastKnownScrollMaxValue.toFloat()
+                            } else {
+                                0f
+                            }
+                            val target = (ratio * maxValue).toInt().coerceIn(0, maxValue)
+                            scrollState.scrollTo(target)
+                        } finally {
+                            autoScrollInProgress = false
+                        }
+                    }
+                    pendingViewportRestore = false
+                }
+
                 if (nearBottom) {
                     followTail = true
                 } else if (isScrollInProgress && !autoScrollInProgress) {
@@ -333,6 +403,7 @@ fun ComposeChatPanel(
                     onFileClick = onFileClick,
                     onToolShowDiff = onToolShowDiff,
                     onToolRevert = onToolRevert,
+                    onStopTask = onStopTask,
                     setupStatus = setupStatus,
                     setupInstalling = setupInstalling,
                     setupError = setupError,
@@ -346,6 +417,21 @@ fun ComposeChatPanel(
                     sdkUpdating = sdkUpdating,
                     sdkUpdateError = sdkUpdateError,
                     onUpdateSdk = onUpdateSdk,
+                    nodeVersion = nodeVersion,
+                    initModel = initModel,
+                    initClaudeCodeVersion = initClaudeCodeVersion,
+                    initToolCount = initToolCount,
+                    initMcpServerCount = initMcpServerCount,
+                    initAgentCount = initAgentCount,
+                    initSkillCount = initSkillCount,
+                    initPluginCount = initPluginCount,
+                    initSlashCommandCount = initSlashCommandCount,
+                    initPermissionMode = initPermissionMode,
+                    initFastModeState = initFastModeState,
+                    initApiKeySource = initApiKeySource,
+                    initBetasCount = initBetasCount,
+                    totalInputTokens = totalInputTokens,
+                    totalOutputTokens = totalOutputTokens,
                     modifier = Modifier.fillMaxSize(),
                 )
 
@@ -415,6 +501,20 @@ fun ComposeChatPanel(
                         )
                     }
 
+                    elicitationPanelVisible && elicitationData != null -> {
+                        ComposeElicitationPanel(
+                            title = elicitationData.title,
+                            description = elicitationData.description,
+                            type = elicitationData.type,
+                            schema = elicitationData.schema,
+                            onSubmit = onElicitationSubmit,
+                            onCancel = onElicitationCancel,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp),
+                        )
+                    }
+
                     questionPanelVisible && currentQuestions.isNotEmpty() -> {
                         ComposeQuestionSelectionPanel(
                             questions = currentQuestions,
@@ -442,13 +542,18 @@ fun ComposeChatPanel(
                             mentionedFiles = mentionedFiles,
                             mentionPopupVisible = mentionPopupVisible,
                             mentionSuggestions = mentionSuggestions,
+                            promptSuggestions = promptSuggestions,
                             onSendOrStop = onSendOrStop,
                             onAttachClick = onAttachClick,
                             onPasteImage = onPasteImage,
                             streamingEnabled = streamingEnabled,
                             thinkingEnabled = thinkingEnabled,
+                            effort = effort,
+                            betaContext1m = betaContext1m,
                             onStreamingToggle = onStreamingToggle,
                             onThinkingToggle = onThinkingToggle,
+                            onEffortChange = onEffortChange,
+                            onBetaContextToggle = onBetaContextToggle,
                             onModelSelect = onModelSelect,
                             onModeSelect = onModeSelect,
                             onEnhanceClick = onEnhanceClick,
@@ -460,6 +565,7 @@ fun ComposeChatPanel(
                             onMentionQuery = onMentionQuery,
                             onMentionSelect = onMentionSelect,
                             onMentionDismiss = onMentionDismiss,
+                            onPromptSuggestionClick = onPromptSuggestionSelect,
                             inputHistory = viewModel.inputHistory,
                             onAddToHistory = { viewModel.addToHistory(it) },
                             statusPanelVisible = statusPanelVisible,

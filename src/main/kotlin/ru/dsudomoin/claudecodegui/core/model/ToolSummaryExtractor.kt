@@ -10,6 +10,8 @@ import ru.dsudomoin.claudecodegui.UcuBundle
  */
 object ToolSummaryExtractor {
 
+    private val SKILL_TOOLS = setOf("skill", "useskill", "runskill", "run_skill", "execute_skill")
+
     fun getToolDisplayName(toolName: String): String {
         val lower = toolName.lowercase()
         return when {
@@ -35,7 +37,7 @@ object ToolSummaryExtractor {
             lower == "createdirectory" -> UcuBundle.message("tool.createDir")
             lower == "movefile" -> UcuBundle.message("tool.moveFile")
             lower == "copyfile" -> UcuBundle.message("tool.copyFile")
-            lower in setOf("skill", "useskill", "runskill", "run_skill", "execute_skill") -> UcuBundle.message("tool.skill")
+            lower in SKILL_TOOLS -> UcuBundle.message("tool.skill")
             lower == "enterplanmode" -> UcuBundle.message("tool.enterPlanMode")
             lower == "exitplanmode" -> UcuBundle.message("tool.exitPlanMode")
             lower.startsWith("mcp__") -> UcuBundle.message("tool.mcp")
@@ -45,6 +47,18 @@ object ToolSummaryExtractor {
 
     fun extractToolSummary(toolName: String, input: JsonObject): String {
         val lower = toolName.lowercase()
+        if (lower in SKILL_TOOLS) {
+            val skill = extractSkillName(input)
+            if (!skill.isNullOrBlank()) return skill
+            val prompt = getStringField(input, "prompt")
+                ?: getStringField(input, "input")
+                ?: getStringField(input, "query")
+            if (!prompt.isNullOrBlank()) {
+                return if (prompt.length > 60) prompt.take(57) + "..." else prompt
+            }
+            return ""
+        }
+
         val filePath = getStringField(input, "file_path")
             ?: getStringField(input, "path")
             ?: getStringField(input, "target_file")
@@ -80,6 +94,16 @@ object ToolSummaryExtractor {
         return ""
     }
 
+    fun isSkillTool(toolName: String): Boolean = toolName.lowercase() in SKILL_TOOLS
+
+    fun extractSkillName(input: JsonObject): String? {
+        return getStringField(input, "skill")
+            ?: getStringField(input, "skill_name")
+            ?: getStringField(input, "skillName")
+            ?: getStringField(input, "name")
+            ?: getStringField(input, "slug")
+    }
+
     private val EDIT_TOOLS = setOf("edit", "edit_file", "replace_string")
     private val BASH_TOOLS = setOf("bash", "run_terminal_cmd", "execute_command", "executecommand", "shell_command")
     private val WRITE_TOOLS = setOf("write", "write_to_file", "save-file", "create_file")
@@ -110,7 +134,7 @@ object ToolSummaryExtractor {
             "read", "read_file",
             "grep", "search", "glob", "find", "list", "listfiles",
             "task", "taskoutput", "webfetch", "websearch",
-        )
+        ) || lower in SKILL_TOOLS
     }
 
     /**

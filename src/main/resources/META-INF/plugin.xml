@@ -1,4 +1,4 @@
-<idea-plugin>
+<idea-plugin require-restart="false">
     <id>ru.dsudomoin.claude-code-gui</id>
     <name>Ultimate Claude GUI</name>
     <vendor url="https://github.com/dsudomoin">dsudomoin</vendor>

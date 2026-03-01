@@ -36,6 +36,13 @@ sealed interface ContentBlock {
     ) : ContentBlock
 
     @Serializable
+    @SerialName("compact_boundary")
+    data class CompactBoundary(
+        val trigger: String = "manual",
+        val preTokens: Int = 0,
+    ) : ContentBlock
+
+    @Serializable
     @SerialName("image")
     data class Image(
         val source: String,

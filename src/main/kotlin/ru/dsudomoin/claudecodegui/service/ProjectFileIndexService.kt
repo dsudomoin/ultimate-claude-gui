@@ -16,7 +16,10 @@ import java.util.concurrent.CopyOnWriteArrayList
  * Indexes both project files and library source files (JDK, dependencies).
  */
 @Service(Service.Level.PROJECT)
-class ProjectFileIndexService(private val project: Project) {
+class ProjectFileIndexService(
+    private val project: Project,
+    private val coroutineScope: CoroutineScope,
+) {
 
     enum class FileSource { PROJECT, LIBRARY }
 
@@ -34,7 +37,8 @@ class ProjectFileIndexService(private val project: Project) {
     @Volatile
     private var isIndexed = false
 
-    private val indexScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Volatile
+    private var indexJob: Job? = null
 
     private val excludedDirs = setOf(
         ".git", ".idea", "node_modules", "build", ".gradle",
@@ -42,11 +46,22 @@ class ProjectFileIndexService(private val project: Project) {
     )
 
     fun ensureIndexed() {
-        if (isIndexed) return
-        indexScope.launch { buildIndex() }
+        if (isIndexed || project.isDisposed) return
+        if (indexJob?.isActive == true) return
+        val job = coroutineScope.launch(Dispatchers.IO) {
+            try {
+                buildIndex()
+            } finally {
+                if (indexJob === this.coroutineContext[Job]) {
+                    indexJob = null
+                }
+            }
+        }
+        indexJob = job
     }
 
     private suspend fun buildIndex() {
+        if (project.isDisposed) return
         val baseDir = project.basePath?.let {
             com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(it)
         } ?: return
@@ -95,6 +110,7 @@ class ProjectFileIndexService(private val project: Project) {
         }
         entries.addAll(libraryEntries)
 
+        if (project.isDisposed) return
         fileEntries.clear()
         fileEntries.addAll(entries)
         isIndexed = true
@@ -161,6 +177,8 @@ class ProjectFileIndexService(private val project: Project) {
 
     fun refresh() {
         isIndexed = false
+        indexJob?.cancel()
+        indexJob = null
         ensureIndexed()
     }
 

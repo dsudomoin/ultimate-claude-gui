@@ -2,36 +2,22 @@ package ru.dsudomoin.claudecodegui.ui.compose.chat
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.key
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.toComposeImageBitmap
-import javax.imageio.ImageIO
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -47,6 +33,7 @@ import ru.dsudomoin.claudecodegui.core.model.Role
 import ru.dsudomoin.claudecodegui.core.model.ToolSummaryExtractor
 import ru.dsudomoin.claudecodegui.ui.compose.common.ComposeMarkdownContent
 import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
+import javax.imageio.ImageIO
 
 /**
  * State holder for streaming message data.
@@ -61,11 +48,21 @@ data class StreamingState(
 )
 
 /**
+ * Visual metadata for compact-boundary divider blocks.
+ */
+data class CompactBoundaryData(
+    val id: String,
+    val trigger: String,
+    val preTokens: Int,
+)
+
+/**
  * A tool block entry in the streaming content flow.
  * Content is interleaved: text before tool, tool, text after tool, etc.
  */
 sealed interface ContentFlowItem {
     data class TextSegment(val text: String) : ContentFlowItem
+    data class CompactBoundary(val data: CompactBoundaryData) : ContentFlowItem
     data class ToolBlock(val data: ToolUseData) : ContentFlowItem
     data class ToolGroup(val data: ToolGroupData) : ContentFlowItem
     data class ApprovalSlot(val id: String) : ContentFlowItem
@@ -99,6 +96,7 @@ fun ComposeMessageBubble(
     onFileClick: ((String) -> Unit)? = null,
     onToolShowDiff: ((ExpandableContent) -> Unit)? = null,
     onToolRevert: ((ExpandableContent) -> Unit)? = null,
+    onStopTask: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     when (message.role) {
@@ -111,6 +109,7 @@ fun ComposeMessageBubble(
             onFileClick = onFileClick,
             onToolShowDiff = onToolShowDiff,
             onToolRevert = onToolRevert,
+            onStopTask = onStopTask,
             modifier = modifier,
         )
     }
@@ -161,14 +160,16 @@ private fun UserBubble(
                 }
                 .padding(horizontal = 14.dp, vertical = 10.dp),
         ) {
-            message.content.forEach { block ->
-                when (block) {
-                    is ContentBlock.Text -> {
-                        Text(
-                            text = block.text,
-                            style = TextStyle(fontSize = 13.sp, color = fgColor),
-                        )
-                    }
+            SelectionContainer {
+                Column {
+                    message.content.forEach { block ->
+                        when (block) {
+                            is ContentBlock.Text -> {
+                                Text(
+                                    text = block.text,
+                                    style = TextStyle(fontSize = 13.sp, color = fgColor),
+                                )
+                            }
                     is ContentBlock.Image -> {
                         val bitmap = remember(block.source) {
                             try {
@@ -192,7 +193,9 @@ private fun UserBubble(
                             )
                         }
                     }
-                    else -> {} // Other blocks shouldn't appear in user messages
+                            else -> {} // Other blocks shouldn't appear in user messages
+                        }
+                    }
                 }
             }
         }
@@ -210,6 +213,7 @@ private fun AssistantBubble(
     onFileClick: ((String) -> Unit)?,
     onToolShowDiff: ((ExpandableContent) -> Unit)?,
     onToolRevert: ((ExpandableContent) -> Unit)?,
+    onStopTask: ((String) -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -226,6 +230,7 @@ private fun AssistantBubble(
                 onFileClick = onFileClick,
                 onToolShowDiff = onToolShowDiff,
                 onToolRevert = onToolRevert,
+                onStopTask = onStopTask,
             )
         } else {
             // Finished message — render content blocks
@@ -246,6 +251,7 @@ private fun StreamingAssistantContent(
     onFileClick: ((String) -> Unit)?,
     onToolShowDiff: ((ExpandableContent) -> Unit)? = null,
     onToolRevert: ((ExpandableContent) -> Unit)? = null,
+    onStopTask: ((String) -> Unit)? = null,
 ) {
     // Timer row
     if (state.isTimerRunning) {
@@ -280,6 +286,14 @@ private fun StreamingAssistantContent(
                         }
                     }
                 }
+                is ContentFlowItem.CompactBoundary -> {
+                    key("compact_${item.data.id}") {
+                        CompactBoundaryBlock(
+                            data = item.data,
+                            modifier = Modifier.padding(vertical = 6.dp),
+                        )
+                    }
+                }
                 is ContentFlowItem.ToolBlock -> {
                     key("tool_${item.data.id}") {
                         ComposeToolUseBlock(
@@ -287,12 +301,13 @@ private fun StreamingAssistantContent(
                             onFileClick = onFileClick,
                             onShowDiff = item.data.expandable?.let { exp -> onToolShowDiff?.let { cb -> { cb(exp) } } },
                             onRevert = item.data.expandable?.let { exp -> onToolRevert?.let { cb -> { cb(exp) } } },
+                            onStopTask = item.data.taskId?.let { tid -> onStopTask?.let { cb -> { cb(tid) } } },
                             modifier = Modifier.padding(vertical = 2.dp),
                         )
                     }
                 }
                 is ContentFlowItem.ToolGroup -> {
-                    key("group_${item.data.category}_$index") {
+                    key(streamingGroupKey(item.data, index)) {
                         ComposeToolGroupBlock(
                             data = item.data,
                             onFileClick = onFileClick,
@@ -343,13 +358,25 @@ private fun FinishedAssistantContent(
         buildFinishedRenderItems(message.content, toolResultMap)
     }
 
-    renderItems.forEach { item ->
+    renderItems.forEachIndexed { index, item ->
         when (item) {
             is FinishedRenderItem.MarkdownText -> {
-                ComposeMarkdownContent(markdown = item.text, selectable = false)
+                key("finished_text_${index}_${item.text.hashCode()}") {
+                    ComposeMarkdownContent(markdown = item.text, selectable = true)
+                }
+            }
+            is FinishedRenderItem.CompactBoundaryItem -> {
+                key("finished_compact_${item.data.id}") {
+                    CompactBoundaryBlock(
+                        data = item.data,
+                        modifier = Modifier.padding(vertical = 6.dp),
+                    )
+                }
             }
             is FinishedRenderItem.CodeItem -> {
-                CodeBlock(code = item.code, language = item.language)
+                key("finished_code_${index}_${item.code.hashCode()}") {
+                    CodeBlock(code = item.code, language = item.language)
+                }
             }
             is FinishedRenderItem.ImageItem -> {
                 val bitmap = remember(item.source) {
@@ -375,22 +402,26 @@ private fun FinishedAssistantContent(
                 }
             }
             is FinishedRenderItem.SingleTool -> {
-                ComposeToolUseBlock(
-                    data = item.data,
-                    onFileClick = onFileClick,
-                    onShowDiff = item.data.expandable?.let { exp -> onToolShowDiff?.let { cb -> { cb(exp) } } },
-                    onRevert = item.data.expandable?.let { exp -> onToolRevert?.let { cb -> { cb(exp) } } },
-                    modifier = Modifier.padding(vertical = 2.dp),
-                )
+                key("finished_tool_${item.data.id}") {
+                    ComposeToolUseBlock(
+                        data = item.data,
+                        onFileClick = onFileClick,
+                        onShowDiff = item.data.expandable?.let { exp -> onToolShowDiff?.let { cb -> { cb(exp) } } },
+                        onRevert = item.data.expandable?.let { exp -> onToolRevert?.let { cb -> { cb(exp) } } },
+                        modifier = Modifier.padding(vertical = 2.dp),
+                    )
+                }
             }
             is FinishedRenderItem.ToolGroupItem -> {
-                ComposeToolGroupBlock(
-                    data = item.data,
-                    onFileClick = onFileClick,
-                    onToolShowDiff = onToolShowDiff,
-                    onToolRevert = onToolRevert,
-                    modifier = Modifier.padding(vertical = 2.dp),
-                )
+                key(finishedGroupKey(item.data, index)) {
+                    ComposeToolGroupBlock(
+                        data = item.data,
+                        onFileClick = onFileClick,
+                        onToolShowDiff = onToolShowDiff,
+                        onToolRevert = onToolRevert,
+                        modifier = Modifier.padding(vertical = 2.dp),
+                    )
+                }
             }
         }
     }
@@ -438,6 +469,126 @@ private fun StreamingTimerRow() {
     }
 }
 
+@Composable
+private fun CompactBoundaryBlock(
+    data: CompactBoundaryData,
+    modifier: Modifier = Modifier,
+) {
+    val colors = LocalClaudeColors.current
+    val triggerLabel = when (data.trigger.lowercase()) {
+        "auto" -> UcuBundle.message("system.compactTrigger.auto")
+        else -> UcuBundle.message("system.compactTrigger.manual")
+    }
+    val tokenLabel = UcuBundle.message("system.compactBoundary.tokens", formatCompactTokenCount(data.preTokens))
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(1.dp)
+                    .background(colors.borderNormal.copy(alpha = 0.42f))
+            )
+            Spacer(Modifier.width(8.dp))
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(
+                                colors.surfaceSecondary.copy(alpha = 0.92f),
+                                colors.surfaceTertiary.copy(alpha = 0.98f),
+                                colors.surfaceSecondary.copy(alpha = 0.92f),
+                            )
+                        )
+                    )
+                    .border(1.dp, colors.borderNormal.copy(alpha = 0.76f), RoundedCornerShape(999.dp))
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "\u2702",
+                        style = TextStyle(fontSize = 11.sp, color = colors.accentSecondary),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = UcuBundle.message("system.compactBoundary.title"),
+                        style = TextStyle(
+                            fontSize = 10.sp,
+                            color = colors.textSecondary,
+                            fontWeight = FontWeight.SemiBold,
+                        ),
+                    )
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(1.dp)
+                    .background(colors.borderNormal.copy(alpha = 0.42f))
+            )
+        }
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            colors.surfaceSecondary.copy(alpha = 0.75f),
+                            colors.surfacePrimary.copy(alpha = 0.88f),
+                            colors.surfaceSecondary.copy(alpha = 0.75f),
+                        )
+                    )
+                )
+                .border(1.dp, colors.borderNormal.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(colors.accent.copy(alpha = 0.88f))
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = triggerLabel.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() },
+                style = TextStyle(
+                    fontSize = 11.sp,
+                    color = colors.textPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                ),
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = tokenLabel,
+                style = TextStyle(
+                    fontSize = 11.sp,
+                    color = colors.textSecondary,
+                ),
+            )
+        }
+    }
+}
+
+private fun formatCompactTokenCount(tokens: Int): String {
+    if (tokens <= 0) return "0"
+    return when {
+        tokens >= 1_000_000 -> String.format("%.1fM", tokens / 1_000_000.0)
+        tokens >= 1_000 -> String.format("%.1fk", tokens / 1_000.0)
+        else -> tokens.toString()
+    }.replace(".0", "")
+}
+
 /**
  * Collapsible thinking section using the existing ComposeThinkingPanel logic.
  */
@@ -479,14 +630,16 @@ private fun CodeBlock(
                 modifier = Modifier.padding(bottom = 4.dp),
             )
         }
-        Text(
-            text = code,
-            style = TextStyle(
-                fontSize = 12.sp,
-                fontFamily = FontFamily.Monospace,
-                color = colors.textPrimary,
-            ),
-        )
+        SelectionContainer {
+            Text(
+                text = code,
+                style = TextStyle(
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = colors.textPrimary,
+                ),
+            )
+        }
     }
 }
 
@@ -501,6 +654,10 @@ private fun buildFinishedExpandable(
     }
     if (lower == "task" || lower == "taskoutput") {
         val markdown = buildTaskExpandableMarkdown(input, resultContent)
+        if (markdown.isNotBlank()) return ExpandableContent.Markdown(markdown)
+    }
+    if (ToolSummaryExtractor.isSkillTool(toolName)) {
+        val markdown = buildSkillExpandableMarkdown(input, resultContent)
         if (markdown.isNotBlank()) return ExpandableContent.Markdown(markdown)
     }
     if (lower in setOf("edit", "edit_file", "replace_string")) {
@@ -530,6 +687,55 @@ private fun buildFinishedExpandable(
         return ExpandableContent.PlainText(resultContent)
     }
     return null
+}
+
+private fun buildSkillExpandableMarkdown(
+    input: kotlinx.serialization.json.JsonObject,
+    resultContent: String?,
+): String {
+    val skillName = ToolSummaryExtractor.extractSkillName(input).orEmpty()
+    val inputField = listOf("input", "arguments", "args", "params", "prompt", "query", "task", "request")
+        .firstNotNullOfOrNull { key -> input[key]?.let { key to it } }
+    val result = resultContent?.trim().orEmpty()
+
+    fun stringifyForMarkdown(element: kotlinx.serialization.json.JsonElement): String {
+        return when (element) {
+            is kotlinx.serialization.json.JsonPrimitive -> element.content
+            is kotlinx.serialization.json.JsonObject, is kotlinx.serialization.json.JsonArray -> "```json\n${element}\n```"
+        }
+    }
+
+    return buildString {
+        if (skillName.isNotBlank()) {
+            appendLine("### Skill")
+            append("`")
+            append(skillName)
+            appendLine("`")
+        }
+
+        if (inputField != null) {
+            val (key, value) = inputField
+            val rendered = stringifyForMarkdown(value).trim()
+            if (rendered.isNotBlank()) {
+                if (isNotEmpty()) appendLine()
+                appendLine("### Input ($key)")
+                appendLine(rendered)
+            }
+        }
+
+        if (result.isNotBlank()) {
+            if (isNotEmpty()) appendLine()
+            appendLine("### Result")
+            appendLine(result)
+        }
+
+        if (isEmpty()) {
+            appendLine("### Skill input")
+            appendLine("```json")
+            appendLine(input.toString())
+            appendLine("```")
+        }
+    }.trim()
 }
 
 private fun buildTaskExpandableMarkdown(
@@ -562,6 +768,12 @@ private fun buildTaskExpandableMarkdown(
             appendLine("### Result")
             appendLine(result)
         }
+        if (isEmpty()) {
+            appendLine("### Task input")
+            appendLine("```json")
+            appendLine(input.toString())
+            appendLine("```")
+        }
     }.trim()
 }
 
@@ -581,10 +793,23 @@ private fun buildFinishedDiffStats(
 
 private sealed interface FinishedRenderItem {
     data class MarkdownText(val text: String) : FinishedRenderItem
+    data class CompactBoundaryItem(val data: CompactBoundaryData) : FinishedRenderItem
     data class CodeItem(val code: String, val language: String?) : FinishedRenderItem
     data class ImageItem(val source: String) : FinishedRenderItem
     data class SingleTool(val data: ToolUseData) : FinishedRenderItem
     data class ToolGroupItem(val data: ToolGroupData) : FinishedRenderItem
+}
+
+private fun streamingGroupKey(group: ToolGroupData, fallbackIndex: Int): String {
+    val idsKey = group.items.joinToString(separator = "_") { it.id }
+    val normalized = if (idsKey.isNotBlank()) idsKey else fallbackIndex.toString()
+    return "stream_group_${group.category}_$normalized"
+}
+
+private fun finishedGroupKey(group: ToolGroupData, fallbackIndex: Int): String {
+    val idsKey = group.items.joinToString(separator = "_") { it.id }
+    val normalized = if (idsKey.isNotBlank()) idsKey else fallbackIndex.toString()
+    return "finished_group_${group.category}_$normalized"
 }
 
 /**
@@ -635,6 +860,18 @@ private fun buildFinishedRenderItems(
                 if (block.text.isNotBlank()) {
                     items.add(FinishedRenderItem.MarkdownText(block.text))
                 }
+            }
+            is ContentBlock.CompactBoundary -> {
+                flushTools()
+                items.add(
+                    FinishedRenderItem.CompactBoundaryItem(
+                        CompactBoundaryData(
+                            id = "finished_${items.size}_${block.preTokens}_${block.trigger}",
+                            trigger = block.trigger,
+                            preTokens = block.preTokens,
+                        )
+                    )
+                )
             }
             is ContentBlock.Code -> {
                 flushTools()
@@ -691,6 +928,7 @@ private fun classifyToolCategoryLocal(toolName: String): ToolCategoryType {
         lower in setOf("bash", "run_terminal_cmd", "execute_command", "executecommand", "shell_command") -> ToolCategoryType.BASH
         lower in setOf("grep", "search", "glob", "find", "list", "listfiles") -> ToolCategoryType.SEARCH
         lower in setOf("write", "write_to_file", "save-file", "create_file") -> ToolCategoryType.EDIT
+        lower in setOf("skill", "useskill", "runskill", "run_skill", "execute_skill") -> ToolCategoryType.SKILL
         else -> ToolCategoryType.OTHER
     }
 }

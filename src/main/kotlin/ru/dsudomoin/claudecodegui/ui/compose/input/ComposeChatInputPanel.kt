@@ -1,14 +1,18 @@
 package ru.dsudomoin.claudecodegui.ui.compose.input
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,6 +27,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
@@ -66,13 +71,18 @@ fun ComposeChatInputPanel(
     mentionedFiles: List<MentionChipData>,
     mentionPopupVisible: Boolean = false,
     mentionSuggestions: List<MentionSuggestionData> = emptyList(),
+    promptSuggestions: List<String> = emptyList(),
     onSendOrStop: () -> Unit,
     onAttachClick: () -> Unit,
     onPasteImage: () -> Boolean = { false },
     streamingEnabled: Boolean = true,
     thinkingEnabled: Boolean = true,
+    effort: String = "high",
+    betaContext1m: Boolean = false,
     onStreamingToggle: () -> Unit = {},
     onThinkingToggle: () -> Unit = {},
+    onEffortChange: (String) -> Unit = {},
+    onBetaContextToggle: () -> Unit = {},
     onModelSelect: (String) -> Unit = {},
     onModeSelect: (String) -> Unit = {},
     onEnhanceClick: () -> Unit,
@@ -84,6 +94,7 @@ fun ComposeChatInputPanel(
     onMentionQuery: (String) -> Unit = {},
     onMentionSelect: (Int) -> Unit = {},
     onMentionDismiss: () -> Unit = {},
+    onPromptSuggestionClick: (String) -> Unit = {},
     inputHistory: List<String> = emptyList(),
     onAddToHistory: (String) -> Unit = {},
     statusPanelVisible: Boolean = true,
@@ -241,6 +252,37 @@ fun ComposeChatInputPanel(
                         .background(colors.dropdownBg, RoundedCornerShape(8.dp))
                         .border(1.dp, colors.borderNormal, RoundedCornerShape(8.dp)),
                 )
+            }
+
+            if (
+                promptSuggestions.isNotEmpty() &&
+                tfv.text.isBlank() &&
+                !slashPopupVisible &&
+                !mentionPopupVisible &&
+                !isSending
+            ) {
+                val suggestionsScrollState = rememberScrollState()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(suggestionsScrollState)
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                ) {
+                    promptSuggestions.take(5).forEachIndexed { index, suggestion ->
+                        PromptSuggestionChip(
+                            text = suggestion,
+                            onClick = {
+                                val newText = suggestion.trim()
+                                tfv = TextFieldValue(newText, TextRange(newText.length))
+                                onTextChange(newText)
+                                onPromptSuggestionClick(newText)
+                            },
+                        )
+                        if (index < promptSuggestions.take(5).lastIndex) {
+                            Spacer(Modifier.width(6.dp))
+                        }
+                    }
+                }
             }
 
             // Text input area
@@ -411,14 +453,44 @@ fun ComposeChatInputPanel(
                 isSending = isSending,
                 streamingEnabled = streamingEnabled,
                 thinkingEnabled = thinkingEnabled,
+                effort = effort,
+                betaContext1m = betaContext1m,
                 onStreamingToggle = onStreamingToggle,
                 onThinkingToggle = onThinkingToggle,
+                onEffortChange = onEffortChange,
+                onBetaContextToggle = onBetaContextToggle,
                 onModelSelect = onModelSelect,
                 onModeSelect = onModeSelect,
                 onEnhanceClick = onEnhanceClick,
                 onSendOrStop = onSendOrStop,
             )
         }
+    }
+}
+
+@Composable
+private fun PromptSuggestionChip(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = LocalClaudeColors.current
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(colors.surfaceTertiary)
+            .border(1.dp, colors.borderNormal, RoundedCornerShape(999.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+    ) {
+        Text(
+            text = text,
+            style = TextStyle(
+                fontSize = 11.sp,
+                color = colors.textSecondary,
+            ),
+            maxLines = 1,
+        )
     }
 }
 

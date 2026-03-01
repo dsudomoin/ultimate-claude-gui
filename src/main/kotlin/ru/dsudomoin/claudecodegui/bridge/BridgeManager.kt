@@ -165,6 +165,58 @@ object BridgeManager {
     }
 
     /**
+     * Run a one-shot bridge command and return tagged output lines.
+     * Spawns a short-lived bridge process, sends the JSON command, and collects
+     * all `[TAG]payload` lines from stdout.
+     *
+     * @param command JSON string to send via stdin
+     * @param timeoutMs Maximum wait time (default 15s)
+     * @return Map of tag → payload string (last occurrence wins for duplicate tags)
+     */
+    fun runBridgeCommand(command: String, timeoutMs: Long = 15_000): Map<String, String> {
+        val nodePath = NodeDetector.detect()
+            ?: throw IllegalStateException("Node.js not found")
+
+        val process = with(ProcessEnvironment) {
+            ProcessBuilder(nodePath, bridgeScript.absolutePath)
+                .directory(bridgeScript.parentFile)
+                .withNodeEnvironment(nodePath)
+                .redirectErrorStream(false)
+                .start()
+        }
+
+        process.outputStream.bufferedWriter().use { writer ->
+            writer.write(command)
+            writer.newLine()
+            writer.flush()
+        }
+
+        val tagPattern = Regex("^\\[([A-Z_]+)](.*)$")
+        val result = mutableMapOf<String, String>()
+
+        process.inputStream.bufferedReader().use { reader ->
+            var line: String?
+            while (reader.readLine().also { line = it } != null) {
+                val match = tagPattern.matchEntire(line ?: continue) ?: continue
+                result[match.groupValues[1]] = match.groupValues[2]
+            }
+        }
+
+        process.waitFor(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+        if (process.isAlive) {
+            process.destroyForcibly()
+        }
+
+        // Check for ERROR tag
+        val error = result["ERROR"]
+        if (error != null && result.size == 1) {
+            throw RuntimeException(error)
+        }
+
+        return result
+    }
+
+    /**
      * Returns the installed SDK version (e.g. "1.0.18"), or null if not installed.
      */
     fun detectSdkVersion(): String? {

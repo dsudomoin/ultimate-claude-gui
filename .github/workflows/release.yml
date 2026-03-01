@@ -26,12 +26,24 @@ jobs:
       - name: Build plugin
         run: ./gradlew buildPlugin
 
+      - name: Extract changelog
+        id: changelog
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          NOTES=$(./gradlew getChangelog --no-header --console=plain -q --project-version="$VERSION" 2>/dev/null || echo "")
+          if [ -z "$NOTES" ]; then
+            NOTES="Release $GITHUB_REF_NAME"
+          fi
+          echo "notes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$NOTES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release
         run: |
           gh release delete ${{ github.ref_name }} --yes --cleanup-tag 2>/dev/null || true
           gh release create ${{ github.ref_name }} \
             build/distributions/*.zip \
-            --generate-notes \
+            --notes "${{ steps.changelog.outputs.notes }}" \
             --latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

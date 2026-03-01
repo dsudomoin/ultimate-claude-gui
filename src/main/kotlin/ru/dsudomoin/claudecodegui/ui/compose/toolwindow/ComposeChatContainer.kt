@@ -15,6 +15,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import kotlinx.serialization.json.JsonElement
 import org.jetbrains.jewel.foundation.ExperimentalJewelApi
 import ru.dsudomoin.claudecodegui.ui.compose.chat.ChatViewModel
 import ru.dsudomoin.claudecodegui.ui.compose.chat.ComposeChatPanel
@@ -68,6 +69,8 @@ fun ComposeChatContainer(
                 onPasteImage = callbacks.onPasteImage,
                 onStreamingToggle = callbacks.onStreamingToggle,
                 onThinkingToggle = callbacks.onThinkingToggle,
+                onEffortChange = callbacks.onEffortChange,
+                onBetaContextToggle = callbacks.onBetaContextToggle,
                 onModelSelect = callbacks.onModelSelect,
                 onModeSelect = callbacks.onModeSelect,
                 onEnhanceClick = callbacks.onEnhanceClick,
@@ -79,9 +82,11 @@ fun ComposeChatContainer(
                 onMentionQuery = callbacks.onMentionQuery,
                 onMentionSelect = callbacks.onMentionSelect,
                 onMentionDismiss = callbacks.onMentionDismiss,
+                onPromptSuggestionSelect = callbacks.onPromptSuggestionSelect,
                 onFileClick = callbacks.onFileClick,
                 onToolShowDiff = callbacks.onToolShowDiff,
                 onToolRevert = callbacks.onToolRevert,
+                onStopTask = callbacks.onStopTask,
                 onStatusFileClick = callbacks.onStatusFileClick,
                 onStatusShowDiff = callbacks.onStatusShowDiff,
                 onStatusUndoFile = callbacks.onStatusUndoFile,
@@ -95,6 +100,8 @@ fun ComposeChatContainer(
                 onPlanDeny = callbacks.onPlanDeny,
                 onApprovalApprove = callbacks.onApprovalApprove,
                 onApprovalReject = callbacks.onApprovalReject,
+                onElicitationSubmit = callbacks.onElicitationSubmit,
+                onElicitationCancel = callbacks.onElicitationCancel,
                 onInstallSdk = callbacks.onInstallSdk,
                 onInstallNode = callbacks.onInstallNode,
                 onLogin = callbacks.onLogin,
@@ -118,6 +125,8 @@ data class ChatCallbacks(
     val onPasteImage: () -> Boolean = { false },
     val onStreamingToggle: () -> Unit = {},
     val onThinkingToggle: () -> Unit = {},
+    val onEffortChange: (String) -> Unit = {},
+    val onBetaContextToggle: () -> Unit = {},
     val onModelSelect: (String) -> Unit = {},
     val onModeSelect: (String) -> Unit = {},
     val onEnhanceClick: () -> Unit = {},
@@ -130,11 +139,13 @@ data class ChatCallbacks(
     val onMentionQuery: (String) -> Unit = {},
     val onMentionSelect: (Int) -> Unit = {},
     val onMentionDismiss: () -> Unit = {},
+    val onPromptSuggestionSelect: (String) -> Unit = {},
     // File navigation
     val onFileClick: ((String) -> Unit)? = null,
-    // Tool actions (diff / revert)
+    // Tool actions (diff / revert / stop task)
     val onToolShowDiff: ((ExpandableContent) -> Unit)? = null,
     val onToolRevert: ((ExpandableContent) -> Unit)? = null,
+    val onStopTask: ((String) -> Unit)? = null,
     // Status
     val onStatusFileClick: (String) -> Unit = {},
     val onStatusShowDiff: (FileChangeSummary) -> Unit = {},
@@ -153,6 +164,9 @@ data class ChatCallbacks(
     // Approval panel
     val onApprovalApprove: () -> Unit = {},
     val onApprovalReject: () -> Unit = {},
+    // Elicitation panel
+    val onElicitationSubmit: (JsonElement) -> Unit = {},
+    val onElicitationCancel: () -> Unit = {},
     // Setup
     val onInstallSdk: () -> Unit = {},
     val onInstallNode: () -> Unit = {},

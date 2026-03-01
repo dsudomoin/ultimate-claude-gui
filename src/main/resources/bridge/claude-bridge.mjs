@@ -12,7 +12,7 @@
  *   Plugin writes: {"allow":true} or {"allow":false,"message":"reason"} + newline
  */
 
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { query, listSessions, getSessionMessages } from '@anthropic-ai/claude-agent-sdk';
 import { createInterface } from 'readline';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -88,6 +88,90 @@ function readLineNoTimeout() {
   });
 }
 
+// ── abort / control support ───────────────────────────────────────────────────
+
+const abortController = new AbortController();
+let activeQuery = null; // Reference to the Query object for runtime control
+
+/**
+ * Listen for control commands on stdin (separate from the line-based readLine queue).
+ * Supported commands:
+ *   {"command":"abort"}             — signal AbortController to gracefully stop
+ *   {"command":"stopTask","taskId":"..."} — stop a specific background task
+ */
+function setupAbortListener() {
+  // Override the line handler to intercept control commands before they enter the queue
+  const originalOnLine = rl.listeners('line').slice();
+  rl.removeAllListeners('line');
+
+  rl.on('line', (line) => {
+    // Try to detect control commands
+    try {
+      const parsed = JSON.parse(line);
+      if (parsed.command === 'abort') {
+        process.stderr.write('[BRIDGE] Received abort command\n');
+        abortController.abort();
+        return; // Don't enqueue this line
+      }
+      if (parsed.command === 'stopTask' && parsed.taskId) {
+        process.stderr.write(`[BRIDGE] Received stopTask command for taskId=${parsed.taskId}\n`);
+        if (activeQuery && typeof activeQuery.stopTask === 'function') {
+          activeQuery.stopTask(parsed.taskId).catch(e => {
+            process.stderr.write(`[BRIDGE] stopTask failed: ${e.message}\n`);
+          });
+        } else {
+          process.stderr.write('[BRIDGE] No active query or stopTask not available\n');
+        }
+        return; // Don't enqueue this line
+      }
+      if (parsed.command === 'rewindFiles' && parsed.userMessageId) {
+        process.stderr.write(`[BRIDGE] Received rewindFiles command for userMessageId=${parsed.userMessageId}\n`);
+        if (activeQuery && typeof activeQuery.rewindFiles === 'function') {
+          activeQuery.rewindFiles(parsed.userMessageId).then(() => {
+            emit('REWIND_RESULT', { success: true, userMessageId: parsed.userMessageId });
+          }).catch(e => {
+            process.stderr.write(`[BRIDGE] rewindFiles failed: ${e.message}\n`);
+            emit('REWIND_RESULT', { success: false, error: e.message });
+          });
+        } else {
+          process.stderr.write('[BRIDGE] No active query or rewindFiles not available\n');
+          emit('REWIND_RESULT', { success: false, error: 'Not available' });
+        }
+        return;
+      }
+      if (parsed.command === 'setModel' && parsed.model) {
+        process.stderr.write(`[BRIDGE] Received setModel command: ${parsed.model}\n`);
+        if (activeQuery && typeof activeQuery.setModel === 'function') {
+          activeQuery.setModel(parsed.model).catch(e => {
+            process.stderr.write(`[BRIDGE] setModel failed: ${e.message}\n`);
+          });
+        }
+        return;
+      }
+      if (parsed.command === 'setPermissionMode' && parsed.mode) {
+        process.stderr.write(`[BRIDGE] Received setPermissionMode command: ${parsed.mode}\n`);
+        if (activeQuery && typeof activeQuery.setPermissionMode === 'function') {
+          activeQuery.setPermissionMode(parsed.mode).catch(e => {
+            process.stderr.write(`[BRIDGE] setPermissionMode failed: ${e.message}\n`);
+          });
+        }
+        return;
+      }
+    } catch (_) {
+      // Not JSON or not a control command — fall through
+    }
+
+    // Forward to original handler (lineQueue logic)
+    if (lineResolve) {
+      const resolve = lineResolve;
+      lineResolve = null;
+      resolve(line);
+    } else {
+      lineQueue.push(line);
+    }
+  });
+}
+
 // ── main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -116,6 +200,13 @@ async function main() {
     maxTurns = 100,
     streaming = true,
     systemPrompt,
+    effort,
+    maxBudgetUsd,
+    betaContext1m = false,
+    continueSession = false,
+    allowedTools,
+    disallowedTools,
+    outputFormat,
   } = input;
 
   if (command === 'getSlashCommands') {
@@ -199,10 +290,48 @@ async function main() {
     }
   }
 
+  // ── listSessions command ────────────────────────────────────────────────────
+  if (command === 'listSessions') {
+    try {
+      const dir = input.dir || undefined;
+      const limit = input.limit || undefined;
+      const sessions = await listSessions({ dir, limit });
+      emit('SESSIONS', sessions);
+      process.exit(0);
+    } catch (e) {
+      process.stderr.write(`[BRIDGE] listSessions error: ${e.message}\n`);
+      emit('ERROR', `listSessions failed: ${e.message}`);
+      process.exit(1);
+    }
+  }
+
+  // ── getSessionMessages command ──────────────────────────────────────────────
+  if (command === 'getSessionMessages') {
+    try {
+      const sessionId = input.sessionId;
+      if (!sessionId) {
+        emit('ERROR', 'Missing sessionId for getSessionMessages');
+        process.exit(1);
+      }
+      const dir = input.dir || undefined;
+      const limit = input.limit || undefined;
+      const messages = await getSessionMessages(sessionId, { dir, limit });
+      emit('SESSION_MESSAGES', messages);
+      process.exit(0);
+    } catch (e) {
+      process.stderr.write(`[BRIDGE] getSessionMessages error: ${e.message}\n`);
+      emit('ERROR', `getSessionMessages failed: ${e.message}`);
+      process.exit(1);
+    }
+  }
+
   if (command !== 'send') {
     emit('ERROR', `Unknown command: ${command}`);
     process.exit(1);
   }
+
+  // After reading the initial command, set up abort listener for subsequent stdin lines
+  setupAbortListener();
 
   if (!message) {
     emit('ERROR', 'Empty message');
@@ -227,6 +356,10 @@ async function main() {
       maxTurns,
       permissionMode,
       includePartialMessages: streaming !== false,
+      settingSources: ['project', 'user', 'local'],
+      thinking: { type: 'adaptive' },
+      promptSuggestions: true,
+      abortSignal: abortController.signal,
       stderr: (msg) => {
         const line = msg.trimEnd();
         if (line) {
@@ -239,7 +372,36 @@ async function main() {
     // SDK uses its built-in cli.js — avoids Windows .cmd spawn issues
     if (model) options.model = model;
     if (sessionId) options.resume = sessionId;
+    if (continueSession) options.continue = true;
     if (systemPrompt) options.systemPrompt = { type: 'preset', preset: 'claude_code', append: systemPrompt };
+    if (effort) options.effort = effort;
+    if (maxBudgetUsd) options.maxBudgetUsd = parseFloat(maxBudgetUsd);
+    if (betaContext1m) options.betas = ['context-1m-2025-08-07'];
+    const parseToolList = (value) => {
+      if (!value) return [];
+      if (Array.isArray(value)) {
+        return value.map(v => `${v}`.trim()).filter(Boolean);
+      }
+      if (typeof value === 'string') {
+        return value.split(',').map(s => s.trim()).filter(Boolean);
+      }
+      return [];
+    };
+    const allowed = parseToolList(allowedTools);
+    if (allowed.length > 0) options.allowedTools = allowed;
+    const disallowed = parseToolList(disallowedTools);
+    if (disallowed.length > 0) options.disallowedTools = disallowed;
+    if (outputFormat && typeof outputFormat === 'object') options.outputFormat = outputFormat;
+    if (input.enableFileCheckpointing) options.enableFileCheckpointing = true;
+    if (input.mcpServers) options.mcpServers = input.mcpServers;
+    if (input.fallbackModel) options.fallbackModel = input.fallbackModel;
+    if (input.additionalDirectories) options.additionalDirectories = input.additionalDirectories;
+    if (input.agents) options.agents = input.agents;
+    if (input.hooks) options.hooks = input.hooks;
+    if (input.persistSession === false) options.persistSession = false;
+    if (input.forkSession) options.forkSession = true;
+    if (input.sandbox) options.sandbox = input.sandbox;
+    if (input.plugins) options.plugins = input.plugins;
 
     // Permission callback — emit request to plugin, wait for response on stdin
     options.canUseTool = async (toolName, toolInput, callbackOptions) => {
@@ -270,7 +432,36 @@ async function main() {
       }
     };
 
+    // Elicitation callback — MCP servers can request user input
+    options.onElicitation = async (elicitationRequest) => {
+      process.stderr.write(`[BRIDGE_ELICITATION] type=${elicitationRequest.type}\n`);
+      emit('ELICITATION_REQUEST', {
+        type: elicitationRequest.type ?? 'text',
+        title: elicitationRequest.title ?? '',
+        description: elicitationRequest.description ?? '',
+        schema: elicitationRequest.schema ?? null,
+      });
+
+      // Wait for plugin response via stdin
+      const responseLine = await readLineNoTimeout();
+      if (!responseLine) {
+        return { behavior: 'deny', message: 'No elicitation response received' };
+      }
+
+      try {
+        const response = JSON.parse(responseLine);
+        if (response.allow) {
+          return { behavior: 'allow', value: response.value };
+        } else {
+          return { behavior: 'deny', message: response.message || 'Elicitation denied by user' };
+        }
+      } catch (e) {
+        return { behavior: 'deny', message: `Failed to parse elicitation response: ${e.message}` };
+      }
+    };
+
     const result = query({ prompt: message, options });
+    activeQuery = result; // Store reference for stopTask / runtime control
 
     // ── Streaming state ──────────────────────────────────────────────────
     // Track whether we've received any stream_event (raw SSE deltas).
@@ -286,6 +477,124 @@ async function main() {
           if (msg.session_id) {
             emit('SESSION_ID', msg.session_id);
           }
+          const subtype = msg.subtype;
+          if (subtype) {
+            process.stderr.write(`[BRIDGE_SYSTEM] subtype=${subtype}\n`);
+          }
+
+          if (subtype === 'init') {
+            emit('INIT', {
+              tools: msg.tools ?? [],
+              model: msg.model ?? '',
+              mcpServers: (msg.mcp_servers ?? []).map(s => ({ name: s.name, status: s.status })),
+              agents: msg.agents ?? [],
+              skills: msg.skills ?? [],
+              plugins: (msg.plugins ?? []).map(p => ({ name: p.name, path: p.path })),
+              slashCommands: msg.slash_commands ?? [],
+              claudeCodeVersion: msg.claude_code_version ?? '',
+              apiKeySource: msg.apiKeySource ?? '',
+              permissionMode: msg.permissionMode ?? '',
+              fastModeState: msg.fast_mode_state ?? null,
+              cwd: msg.cwd ?? '',
+              betas: msg.betas ?? [],
+            });
+          } else if (subtype === 'compact_boundary') {
+            emit('COMPACT_BOUNDARY', {
+              trigger: msg.compact_metadata?.trigger ?? 'manual',
+              preTokens: msg.compact_metadata?.pre_tokens ?? 0,
+            });
+          } else if (subtype === 'status') {
+            emit('SDK_STATUS', {
+              status: msg.status ?? null,
+              permissionMode: msg.permissionMode ?? null,
+            });
+          } else if (subtype === 'task_started') {
+            emit('TASK_STARTED', {
+              taskId: msg.task_id,
+              toolUseId: msg.tool_use_id ?? null,
+              description: msg.description ?? '',
+              taskType: msg.task_type ?? null,
+            });
+          } else if (subtype === 'task_progress') {
+            emit('TASK_PROGRESS', {
+              taskId: msg.task_id,
+              toolUseId: msg.tool_use_id ?? null,
+              description: msg.description ?? '',
+              usage: {
+                totalTokens: msg.usage?.total_tokens ?? 0,
+                toolUses: msg.usage?.tool_uses ?? 0,
+                durationMs: msg.usage?.duration_ms ?? 0,
+              },
+              lastToolName: msg.last_tool_name ?? null,
+            });
+          } else if (subtype === 'task_notification') {
+            emit('TASK_NOTIFICATION', {
+              taskId: msg.task_id,
+              toolUseId: msg.tool_use_id ?? null,
+              status: msg.status ?? 'completed',
+              outputFile: msg.output_file ?? '',
+              summary: msg.summary ?? '',
+              usage: {
+                totalTokens: msg.usage?.total_tokens ?? 0,
+                toolUses: msg.usage?.tool_uses ?? 0,
+                durationMs: msg.usage?.duration_ms ?? 0,
+              },
+            });
+          } else if (subtype === 'hook_started' || subtype === 'hook_progress' || subtype === 'hook_response') {
+            emit('HOOK_EVENT', {
+              hookName: msg.hook_name ?? '',
+              hookEvent: subtype,
+              toolName: msg.tool_name ?? null,
+              progress: msg.progress ?? msg.response ?? null,
+            });
+          } else if (subtype === 'files_persisted') {
+            emit('FILES_PERSISTED', {
+              files: msg.files ?? [],
+            });
+          } else if (subtype === 'local_command_output' && msg.content) {
+            // Local slash command output is assistant-style text; surface it.
+            emitDelta('CONTENT_DELTA', msg.content);
+          }
+          break;
+        }
+
+        case 'tool_progress': {
+          emit('TOOL_PROGRESS', {
+            toolUseId: msg.tool_use_id ?? '',
+            toolName: msg.tool_name ?? '',
+            parentToolUseId: msg.parent_tool_use_id ?? null,
+            elapsedTimeSeconds: msg.elapsed_time_seconds ?? 0,
+            taskId: msg.task_id ?? null,
+          });
+          break;
+        }
+
+        case 'tool_use_summary': {
+          emit('TOOL_USE_SUMMARY', {
+            summary: msg.summary ?? '',
+            precedingToolUseIds: msg.preceding_tool_use_ids ?? [],
+          });
+          break;
+        }
+
+        case 'rate_limit_event': {
+          emit('RATE_LIMIT', msg.rate_limit_info ?? {});
+          break;
+        }
+
+        case 'auth_status': {
+          emit('AUTH_STATUS', {
+            isAuthenticating: !!msg.isAuthenticating,
+            output: Array.isArray(msg.output) ? msg.output : [],
+            error: msg.error ?? null,
+          });
+          break;
+        }
+
+        case 'prompt_suggestion': {
+          emit('PROMPT_SUGGESTION', {
+            suggestion: msg.suggestion ?? '',
+          });
           break;
         }
 
@@ -425,15 +734,53 @@ async function main() {
         }
 
         case 'result': {
-          process.stderr.write(`[BRIDGE_RESULT] is_error=${msg.is_error} session_id=${msg.session_id} errors=${msg.errors}\n`);
+          const subtype = msg.subtype ?? '';
+          process.stderr.write(`[BRIDGE_RESULT] is_error=${msg.is_error} subtype=${subtype} session_id=${msg.session_id} errors=${msg.errors}\n`);
           if (msg.is_error) {
-            const errText = Array.isArray(msg.errors) && msg.errors.length > 0
-              ? msg.errors.join(' | ')
-              : 'Unknown SDK error';
+            let errText;
+            if (subtype === 'error_max_budget_usd') {
+              errText = `Budget limit reached ($${maxBudgetUsd || '?'})`;
+            } else if (subtype === 'error_max_turns') {
+              errText = `Max turns limit reached (${maxTurns})`;
+            } else {
+              errText = Array.isArray(msg.errors) && msg.errors.length > 0
+                ? msg.errors.join(' | ')
+                : 'Unknown SDK error';
+            }
             emit('ERROR', errText);
+          }
+          // Emit total cost info from result
+          if (msg.cost_usd != null) {
+            emit('COST', { costUsd: msg.cost_usd, durationMs: msg.duration_ms ?? 0 });
           }
           if (msg.session_id) {
             emit('SESSION_ID', msg.session_id);
+          }
+          // Emit rich result metadata (L14, L15)
+          const resultMeta = {};
+          if (msg.fast_mode_state) resultMeta.fastModeState = msg.fast_mode_state;
+          if (msg.model_usage) {
+            // Normalize model_usage: SDK may return Map or plain object
+            const usage = msg.model_usage;
+            const normalized = {};
+            if (usage && typeof usage === 'object' && !Array.isArray(usage)) {
+              // Could be a Map or plain object
+              const entries = usage instanceof Map ? usage.entries() : Object.entries(usage);
+              for (const [model, data] of entries) {
+                if (data && typeof data === 'object' && !Array.isArray(data)) {
+                  normalized[model] = {
+                    input_tokens: data.input_tokens ?? 0,
+                    output_tokens: data.output_tokens ?? 0,
+                  };
+                }
+              }
+            }
+            resultMeta.modelUsage = normalized;
+            process.stderr.write(`[BRIDGE_MODEL_USAGE] raw=${JSON.stringify(msg.model_usage)} normalized=${JSON.stringify(normalized)}\n`);
+          }
+          if (typeof msg.permission_denials === 'number') resultMeta.permissionDenials = msg.permission_denials;
+          if (Object.keys(resultMeta).length > 0) {
+            emit('RESULT_META', resultMeta);
           }
           // NOTE: Do NOT emit USAGE from result — result.usage is cumulative across
           // all API calls in the agentic loop, not the actual context window usage.
@@ -442,6 +789,9 @@ async function main() {
         }
 
         case 'user': {
+          if (msg.message?.id) {
+            emit('USER_MESSAGE_ID', msg.message.id);
+          }
           // Tool results from the SDK (bash output, file read results, etc.)
           const userContent = msg.message?.content;
           if (!userContent || !Array.isArray(userContent)) break;
@@ -471,6 +821,14 @@ async function main() {
 
     emit('STREAM_END', '');
   } catch (e) {
+    // Graceful abort — not an error
+    if (e.name === 'AbortError' || abortController.signal.aborted) {
+      process.stderr.write('[BRIDGE] Query aborted gracefully\n');
+      emit('STREAM_END', '');
+      process.exit(0);
+      return;
+    }
+
     let errMsg = `SDK error: ${e.message ?? e}`;
     // Extract meaningful error lines from SDK stderr (single-line safe for protocol)
     const meaningful = sdkStderrLines.filter(l =>

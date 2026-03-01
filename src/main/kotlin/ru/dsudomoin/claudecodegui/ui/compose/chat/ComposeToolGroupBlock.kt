@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -46,7 +47,7 @@ import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
 /**
  * Tool category for grouping.
  */
-enum class ToolCategoryType { READ, EDIT, BASH, SEARCH, OTHER }
+enum class ToolCategoryType { READ, EDIT, BASH, SEARCH, SKILL, OTHER }
 
 /**
  * Data for a single item inside a tool group.
@@ -189,13 +190,15 @@ fun ComposeToolGroupBlock(
 
                 // Items (max visible with scroll handled by parent)
                 data.items.forEach { item ->
-                    GroupItemRow(
-                        item = item,
-                        category = data.category,
-                        onFileClick = onFileClick,
-                        onShowDiff = item.expandable?.let { exp -> onToolShowDiff?.let { cb -> { cb(exp) } } },
-                        onRevert = item.expandable?.let { exp -> onToolRevert?.let { cb -> { cb(exp) } } },
-                    )
+                    key(item.id) {
+                        GroupItemRow(
+                            item = item,
+                            category = data.category,
+                            onFileClick = onFileClick,
+                            onShowDiff = item.expandable?.let { exp -> onToolShowDiff?.let { cb -> { cb(exp) } } },
+                            onRevert = item.expandable?.let { exp -> onToolRevert?.let { cb -> { cb(exp) } } },
+                        )
+                    }
                 }
             }
         }
@@ -213,8 +216,11 @@ private fun GroupItemRow(
     val colors = LocalClaudeColors.current
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
-    var itemExpanded by remember { mutableStateOf(false) }
     val hasExpandable = item.expandable != null
+    val isReadTool = item.toolName.lowercase() in setOf("read", "read_file")
+    var itemExpanded by remember(item.id, isReadTool, hasExpandable) {
+        mutableStateOf(isReadTool && hasExpandable)
+    }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -366,7 +372,7 @@ private fun GroupItemRow(
                                 .verticalScroll(mdScrollState)
                                 .padding(horizontal = 12.dp, vertical = 8.dp),
                         ) {
-                            ComposeMarkdownContent(markdown = content.text, selectable = false)
+                            ComposeMarkdownContent(markdown = content.text, selectable = true)
                         }
                     }
                     null -> {}
@@ -381,6 +387,7 @@ private fun getCategoryEmoji(category: ToolCategoryType): String = when (categor
     ToolCategoryType.EDIT -> "\u270F\uFE0F"
     ToolCategoryType.BASH -> "\u2699\uFE0F"
     ToolCategoryType.SEARCH -> "\uD83D\uDD0D"
+    ToolCategoryType.SKILL -> "\u2728"
     ToolCategoryType.OTHER -> "\u26A1"
 }
 
@@ -389,5 +396,6 @@ private fun getCategoryLabel(category: ToolCategoryType): String = when (categor
     ToolCategoryType.EDIT -> "Edit"
     ToolCategoryType.BASH -> "Bash"
     ToolCategoryType.SEARCH -> "Search"
+    ToolCategoryType.SKILL -> "Skills"
     ToolCategoryType.OTHER -> "Tools"
 }

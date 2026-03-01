@@ -4,6 +4,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization") version "2.3.10"
     id("org.jetbrains.kotlin.plugin.compose") version "2.3.10"
     id("org.jetbrains.intellij.platform") version "2.11.0"
+    id("org.jetbrains.changelog") version "2.5.0"
 }
 
 group = "ru.dsudomoin"
@@ -11,7 +12,12 @@ version = providers.exec {
     commandLine("git", "describe", "--tags", "--abbrev=0")
     isIgnoreExitValue = true
 }.standardOutput.asText.map { text ->
-    text.trim().removePrefix("v").ifEmpty { "0.0.0-SNAPSHOT" }
+    val tag = text.trim().removePrefix("v")
+    if (tag.isEmpty()) "1.0-SNAPSHOT"
+    else {
+        val isCI = System.getenv("CI") != null || System.getenv("GITHUB_ACTIONS") != null
+        if (isCI) tag else "1.0-SNAPSHOT"
+    }
 }.get()
 
 repositories {
@@ -56,10 +62,20 @@ intellijPlatform {
             sinceBuild = "253.28294"
         }
 
-        changeNotes = """
-            Phase 1: Core foundation with native chat UI
-        """.trimIndent()
+        changeNotes = provider {
+            changelog.renderItem(
+                (changelog.getOrNull(project.version.toString()) ?: changelog.getUnreleased())
+                    .withHeader(false)
+                    .withEmptySections(false),
+                org.jetbrains.changelog.Changelog.OutputType.HTML,
+            )
+        }
     }
+}
+
+changelog {
+    version = project.version.toString()
+    groups.empty()
 }
 
 tasks {

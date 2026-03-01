@@ -46,6 +46,7 @@ import ru.dsudomoin.claudecodegui.bridge.NodeState
 import ru.dsudomoin.claudecodegui.bridge.SetupStatus
 import ru.dsudomoin.claudecodegui.core.model.Message
 import ru.dsudomoin.claudecodegui.core.model.Role
+import ru.dsudomoin.claudecodegui.ui.compose.status.ComposeSdkVersionBar
 import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
@@ -67,6 +68,7 @@ fun ComposeMessageList(
     onFileClick: ((String) -> Unit)? = null,
     onToolShowDiff: ((ExpandableContent) -> Unit)? = null,
     onToolRevert: ((ExpandableContent) -> Unit)? = null,
+    onStopTask: ((String) -> Unit)? = null,
     setupStatus: SetupStatus? = null,
     setupInstalling: Boolean = false,
     setupError: String? = null,
@@ -81,6 +83,24 @@ fun ComposeMessageList(
     sdkUpdating: Boolean = false,
     sdkUpdateError: String? = null,
     onUpdateSdk: () -> Unit = {},
+    // ── Node.js version ──
+    nodeVersion: String? = null,
+    // ── Init metadata (from SDK init message) ──
+    initModel: String = "",
+    initClaudeCodeVersion: String = "",
+    initToolCount: Int = 0,
+    initMcpServerCount: Int = 0,
+    initAgentCount: Int = 0,
+    initSkillCount: Int = 0,
+    initPluginCount: Int = 0,
+    initSlashCommandCount: Int = 0,
+    initPermissionMode: String = "",
+    initFastModeState: String = "",
+    initApiKeySource: String = "",
+    initBetasCount: Int = 0,
+    // ── Token usage (from ResultMeta) ──
+    totalInputTokens: Int = 0,
+    totalOutputTokens: Int = 0,
     modifier: Modifier = Modifier,
 ) {
 
@@ -105,6 +125,21 @@ fun ComposeMessageList(
                 sdkUpdating = sdkUpdating,
                 sdkUpdateError = sdkUpdateError,
                 onUpdateSdk = onUpdateSdk,
+                nodeVersion = nodeVersion,
+                initModel = initModel,
+                initClaudeCodeVersion = initClaudeCodeVersion,
+                initToolCount = initToolCount,
+                initMcpServerCount = initMcpServerCount,
+                initAgentCount = initAgentCount,
+                initSkillCount = initSkillCount,
+                initPluginCount = initPluginCount,
+                initSlashCommandCount = initSlashCommandCount,
+                initPermissionMode = initPermissionMode,
+                initFastModeState = initFastModeState,
+                initApiKeySource = initApiKeySource,
+                initBetasCount = initBetasCount,
+                totalInputTokens = totalInputTokens,
+                totalOutputTokens = totalOutputTokens,
                 modifier = modifier,
             )
         }
@@ -137,6 +172,7 @@ fun ComposeMessageList(
                     onFileClick = onFileClick,
                     onToolShowDiff = onToolShowDiff,
                     onToolRevert = onToolRevert,
+                    onStopTask = onStopTask,
                 )
             }
             // Scroll anchor
@@ -165,6 +201,7 @@ private fun MessageWrapper(
     onFileClick: ((String) -> Unit)?,
     onToolShowDiff: ((ExpandableContent) -> Unit)? = null,
     onToolRevert: ((ExpandableContent) -> Unit)? = null,
+    onStopTask: ((String) -> Unit)? = null,
 ) {
     val colors = LocalClaudeColors.current
     val timeFormat = remember { SimpleDateFormat("HH:mm") }
@@ -211,6 +248,7 @@ private fun MessageWrapper(
                     onFileClick = onFileClick,
                     onToolShowDiff = onToolShowDiff,
                     onToolRevert = onToolRevert,
+                    onStopTask = onStopTask,
                 )
 
                 // Copy button (top-right, visible on hover)
@@ -524,6 +562,21 @@ private fun WelcomeScreen(
     sdkUpdating: Boolean = false,
     sdkUpdateError: String? = null,
     onUpdateSdk: () -> Unit = {},
+    nodeVersion: String? = null,
+    initModel: String = "",
+    initClaudeCodeVersion: String = "",
+    initToolCount: Int = 0,
+    initMcpServerCount: Int = 0,
+    initAgentCount: Int = 0,
+    initSkillCount: Int = 0,
+    initPluginCount: Int = 0,
+    initSlashCommandCount: Int = 0,
+    initPermissionMode: String = "",
+    initFastModeState: String = "",
+    initApiKeySource: String = "",
+    initBetasCount: Int = 0,
+    totalInputTokens: Int = 0,
+    totalOutputTokens: Int = 0,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalClaudeColors.current
@@ -557,55 +610,32 @@ private fun WelcomeScreen(
                 ),
             )
 
-            // SDK version (under subtitle)
-            if (sdkCurrentVersion != null) {
-                Spacer(Modifier.height(4.dp))
-                Row(
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = UcuBundle.message("sdk.version", sdkCurrentVersion),
-                        style = TextStyle(fontSize = 11.sp, color = colors.textSecondary),
-                    )
-                    when {
-                        sdkUpdating -> {
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                text = UcuBundle.message("sdk.updating"),
-                                style = TextStyle(fontSize = 11.sp, color = colors.textSecondary),
-                            )
-                        }
-                        sdkUpdateError != null -> {
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                text = UcuBundle.message("sdk.updateError"),
-                                style = TextStyle(fontSize = 11.sp, color = colors.statusError),
-                            )
-                        }
-                        sdkUpdateAvailable && sdkLatestVersion != null -> {
-                            Spacer(Modifier.width(6.dp))
-                            val interactionSource = remember { MutableInteractionSource() }
-                            val isHovered by interactionSource.collectIsHoveredAsState()
-                            Text(
-                                text = UcuBundle.message("sdk.updateAvailable", sdkLatestVersion),
-                                style = TextStyle(
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = if (isHovered) colors.accentSecondary.copy(alpha = 0.8f)
-                                            else colors.accentSecondary,
-                                ),
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .hoverable(interactionSource)
-                                    .clickable { onUpdateSdk() }
-                                    .pointerHoverIcon(PointerIcon.Hand)
-                                    .padding(horizontal = 4.dp, vertical = 2.dp),
-                            )
-                        }
-                    }
-                }
-            }
+            // SDK version + Node.js version + init metadata (under subtitle)
+            ComposeSdkVersionBar(
+                currentVersion = sdkCurrentVersion,
+                latestVersion = sdkLatestVersion,
+                updateAvailable = sdkUpdateAvailable,
+                updating = sdkUpdating,
+                updateError = sdkUpdateError,
+                onUpdate = onUpdateSdk,
+                nodeVersion = nodeVersion,
+                initModel = initModel,
+                initClaudeCodeVersion = initClaudeCodeVersion,
+                initToolCount = initToolCount,
+                initMcpServerCount = initMcpServerCount,
+                initAgentCount = initAgentCount,
+                initSkillCount = initSkillCount,
+                initPluginCount = initPluginCount,
+                initSlashCommandCount = initSlashCommandCount,
+                initPermissionMode = initPermissionMode,
+                initFastModeState = initFastModeState,
+                initApiKeySource = initApiKeySource,
+                initBetasCount = initBetasCount,
+                totalInputTokens = totalInputTokens,
+                totalOutputTokens = totalOutputTokens,
+                centered = true,
+                modifier = Modifier.padding(top = 4.dp),
+            )
 
             Spacer(Modifier.height(24.dp))
 

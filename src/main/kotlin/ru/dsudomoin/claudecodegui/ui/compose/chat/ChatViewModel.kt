@@ -2,6 +2,7 @@ package ru.dsudomoin.claudecodegui.ui.compose.chat
 
 import ru.dsudomoin.claudecodegui.bridge.SetupStatus
 import ru.dsudomoin.claudecodegui.core.model.Message
+import ru.dsudomoin.claudecodegui.core.model.StreamEvent
 import ru.dsudomoin.claudecodegui.ui.approval.ToolApprovalRequest
 import ru.dsudomoin.claudecodegui.ui.compose.dialog.QuestionData
 import ru.dsudomoin.claudecodegui.ui.compose.input.AttachedImageData
@@ -109,6 +110,12 @@ class ChatViewModel {
     var sdkUpdateError: String? = null
         set(value) { field = value; notifyListeners() }
 
+    var nodeVersion: String? = null
+        set(value) { field = value; notifyListeners() }
+
+    var lastResultMeta: StreamEvent.ResultMeta? = null
+        set(value) { field = value; notifyListeners() }
+
     // ── Messages ─────────────────────────────────────────────────────────────
 
     var messages: List<Message> = emptyList()
@@ -180,6 +187,11 @@ class ChatViewModel {
         set(value) { field = value; notifyListeners() }
     var currentQuestions: List<QuestionData> = emptyList()
         set(value) { field = value; notifyListeners() }
+    var elicitationPanelVisible: Boolean = false
+        set(value) { field = value; notifyListeners() }
+    var elicitationData: StreamEvent.ElicitationRequest? = null
+        set(value) { field = value; notifyListeners() }
+
     var planPanelVisible: Boolean = false
         set(value) { field = value; notifyListeners() }
     var planMarkdown: String = ""
@@ -232,6 +244,41 @@ class ChatViewModel {
     var streamingEnabled: Boolean = true
         set(value) { field = value; notifyListeners() }
     var thinkingEnabled: Boolean = true
+        set(value) { field = value; notifyListeners() }
+    var effort: String = "high"
+        set(value) { field = value; notifyListeners() }
+    var betaContext1m: Boolean = false
+        set(value) { field = value; notifyListeners() }
+
+    // ── Init Metadata (from SDK init message) ────────────────────────────────
+
+    var initModel: String = ""
+        set(value) { field = value; notifyListeners() }
+    var initClaudeCodeVersion: String = ""
+        set(value) { field = value; notifyListeners() }
+    var initTools: List<String> = emptyList()
+        set(value) { field = value; notifyListeners() }
+    var initMcpServers: List<String> = emptyList()
+        set(value) { field = value; notifyListeners() }
+    var initAgents: List<String> = emptyList()
+        set(value) { field = value; notifyListeners() }
+    var initSkills: List<String> = emptyList()
+        set(value) { field = value; notifyListeners() }
+    var initPlugins: List<String> = emptyList()
+        set(value) { field = value; notifyListeners() }
+    var initSlashCommands: List<String> = emptyList()
+        set(value) { field = value; notifyListeners() }
+    var initApiKeySource: String = ""
+        set(value) { field = value; notifyListeners() }
+    var initPermissionMode: String = ""
+        set(value) { field = value; notifyListeners() }
+    var initFastModeState: String = ""
+        set(value) { field = value; notifyListeners() }
+    var initCwd: String = ""
+        set(value) { field = value; notifyListeners() }
+    var initBetas: List<String> = emptyList()
+        set(value) { field = value; notifyListeners() }
+    var promptSuggestions: List<String> = emptyList()
         set(value) { field = value; notifyListeners() }
 
     // ── Input History (feature 59) ──────────────────────────────────────────

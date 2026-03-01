@@ -7,8 +7,10 @@ import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vcs.CommitMessageI
 import com.intellij.openapi.vcs.VcsDataKeys
 import kotlinx.coroutines.*
@@ -49,9 +51,16 @@ class GenerateCommitAction : AnAction("Generate Commit Message with Claude"), Du
         commitMessage.setCommitMessage(UcuBundle.message("commit.generating"))
 
         // Generate in background using ClaudeProvider (SDK bridge)
-        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+        val actionScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val cancelDisposable = Disposable {
+            actionScope.cancel("Project/plugin disposed")
+        }
+        Disposer.register(project, cancelDisposable)
+
+        actionScope.launch {
             try {
                 val message = generateViaSDK(project, diff)
+                if (project.isDisposed) return@launch
                 SwingUtilities.invokeLater {
                     commitMessage.setCommitMessage(message)
                 }
@@ -65,6 +74,9 @@ class GenerateCommitAction : AnAction("Generate Commit Message with Claude"), Du
                 }
                 notify(project, UcuBundle.message("commit.error", ex.message ?: ""), NotificationType.ERROR)
             }
+        }.invokeOnCompletion {
+            actionScope.cancel()
+            runCatching { Disposer.dispose(cancelDisposable) }
         }
     }
 
