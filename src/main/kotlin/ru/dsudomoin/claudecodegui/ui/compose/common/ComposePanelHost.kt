@@ -11,6 +11,7 @@ import org.jetbrains.jewel.intui.markdown.bridge.ProvideMarkdownStyling
 import org.jetbrains.jewel.intui.markdown.bridge.create
 import org.jetbrains.jewel.intui.markdown.bridge.styling.create
 import org.jetbrains.jewel.intui.markdown.bridge.styling.extensions.github.tables.create
+import org.jetbrains.jewel.markdown.extensions.autolink.AutolinkProcessorExtension
 import org.jetbrains.jewel.markdown.extensions.github.tables.GfmTableColors
 import org.jetbrains.jewel.markdown.extensions.github.tables.GfmTableStyling
 import org.jetbrains.jewel.markdown.extensions.github.tables.GitHubTableProcessorExtension
@@ -96,7 +97,7 @@ private fun ConfiguredMarkdownStyling(content: @Composable () -> Unit) {
     val tableRendererExt = remember(tableStyling, fixedStyling) {
         GitHubTableRendererExtension(tableStyling, fixedStyling)
     }
-    val processor = remember { MarkdownProcessor(listOf(GitHubTableProcessorExtension, FilePathProcessorExtension)) }
+    val processor = remember { MarkdownProcessor(listOf(AutolinkProcessorExtension, GitHubTableProcessorExtension, FilePathProcessorExtension)) }
     val blockRenderer = remember(fixedStyling, tableRendererExt) {
         MarkdownBlockRenderer.create(fixedStyling, listOf(tableRendererExt))
     }
