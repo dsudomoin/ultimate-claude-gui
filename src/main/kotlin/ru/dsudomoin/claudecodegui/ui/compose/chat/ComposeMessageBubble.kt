@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -159,14 +160,16 @@ private fun UserBubble(
                 }
                 .padding(horizontal = 14.dp, vertical = 10.dp),
         ) {
-            message.content.forEach { block ->
-                when (block) {
-                    is ContentBlock.Text -> {
-                        Text(
-                            text = block.text,
-                            style = TextStyle(fontSize = 13.sp, color = fgColor),
-                        )
-                    }
+            SelectionContainer {
+                Column {
+                    message.content.forEach { block ->
+                        when (block) {
+                            is ContentBlock.Text -> {
+                                Text(
+                                    text = block.text,
+                                    style = TextStyle(fontSize = 13.sp, color = fgColor),
+                                )
+                            }
                     is ContentBlock.Image -> {
                         val bitmap = remember(block.source) {
                             try {
@@ -190,7 +193,9 @@ private fun UserBubble(
                             )
                         }
                     }
-                    else -> {} // Other blocks shouldn't appear in user messages
+                            else -> {} // Other blocks shouldn't appear in user messages
+                        }
+                    }
                 }
             }
         }
@@ -357,7 +362,7 @@ private fun FinishedAssistantContent(
         when (item) {
             is FinishedRenderItem.MarkdownText -> {
                 key("finished_text_${index}_${item.text.hashCode()}") {
-                    ComposeMarkdownContent(markdown = item.text, selectable = false)
+                    ComposeMarkdownContent(markdown = item.text, selectable = true)
                 }
             }
             is FinishedRenderItem.CompactBoundaryItem -> {
@@ -625,14 +630,16 @@ private fun CodeBlock(
                 modifier = Modifier.padding(bottom = 4.dp),
             )
         }
-        Text(
-            text = code,
-            style = TextStyle(
-                fontSize = 12.sp,
-                fontFamily = FontFamily.Monospace,
-                color = colors.textPrimary,
-            ),
-        )
+        SelectionContainer {
+            Text(
+                text = code,
+                style = TextStyle(
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = colors.textPrimary,
+                ),
+            )
+        }
     }
 }
 

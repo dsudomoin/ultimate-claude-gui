@@ -372,7 +372,7 @@ private fun GroupItemRow(
                                 .verticalScroll(mdScrollState)
                                 .padding(horizontal = 12.dp, vertical = 8.dp),
                         ) {
-                            ComposeMarkdownContent(markdown = content.text, selectable = false)
+                            ComposeMarkdownContent(markdown = content.text, selectable = true)
                         }
                     }
                     null -> {}
