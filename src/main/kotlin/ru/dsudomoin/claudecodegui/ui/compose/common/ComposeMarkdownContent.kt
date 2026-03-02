@@ -23,7 +23,7 @@ import org.jetbrains.jewel.markdown.extensions.markdownStyling
 fun ComposeMarkdownContent(
     markdown: String,
     onUrlClick: (String) -> Unit = {},
-    selectable: Boolean = true,
+    selectable: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     if (markdown.isBlank()) return

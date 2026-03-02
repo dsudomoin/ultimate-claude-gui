@@ -15,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -52,7 +53,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.window.Popup
 import org.jetbrains.jewel.ui.component.Text
+import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.ui.compose.common.ComposeMarkdownContent
 import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
 
@@ -103,6 +107,7 @@ data class ToolUseData(
 fun ComposeToolUseBlock(
     data: ToolUseData,
     onFileClick: ((String) -> Unit)? = null,
+    onUrlClick: ((String) -> Unit)? = null,
     onShowDiff: (() -> Unit)? = null,
     onRevert: (() -> Unit)? = null,
     onStopTask: (() -> Unit)? = null,
@@ -112,10 +117,12 @@ fun ComposeToolUseBlock(
     val shape = RoundedCornerShape(16.dp)
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
-    val isReadTool = data.toolName.lowercase() in setOf("read", "read_file")
+    val lowerToolName = data.toolName.lowercase()
+    val isReadTool = lowerToolName in setOf("read", "read_file")
+    val isEditTool = lowerToolName in setOf("edit", "edit_file", "replace_string")
     val hasExpandable = data.expandable != null
-    var expanded by remember(data.id, isReadTool, hasExpandable) {
-        mutableStateOf(isReadTool && hasExpandable)
+    var expanded by remember(data.id, isReadTool, isEditTool, hasExpandable) {
+        mutableStateOf((isReadTool || isEditTool) && hasExpandable)
     }
     val statusColor = when (data.status) {
         ToolStatus.PENDING -> colors.statusWarning
@@ -135,12 +142,7 @@ fun ComposeToolUseBlock(
             .clip(shape)
             .border(1.dp, borderColor, shape)
             .background(if (isHovered && !expanded) colors.surfaceHover else baseBackground)
-            .hoverable(interactionSource)
-            .then(
-                if (hasExpandable) Modifier.clickable { expanded = !expanded }
-                    .pointerHoverIcon(PointerIcon.Hand)
-                else Modifier
-            ),
+            .hoverable(interactionSource),
     ) {
         // Header row
         Row(
@@ -148,6 +150,11 @@ fun ComposeToolUseBlock(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(38.dp)
+                .then(
+                    if (hasExpandable) Modifier.clickable { expanded = !expanded }
+                        .pointerHoverIcon(PointerIcon.Hand)
+                    else Modifier
+                )
                 .padding(horizontal = 12.dp),
         ) {
             // Expand chevron
@@ -176,6 +183,7 @@ fun ComposeToolUseBlock(
             // Summary (truncated, possibly a file link)
             if (data.summary.isNotEmpty()) {
                 val isClickableFile = data.isFileLink && onFileClick != null && data.filePath != null
+                val isClickableUrl = !isClickableFile && onUrlClick != null && isHttpUrl(data.summary)
                 if (data.isFileLink) {
                     ru.dsudomoin.claudecodegui.ui.compose.input.FileTypeIcon(
                         fileName = data.summary,
@@ -189,8 +197,8 @@ fun ComposeToolUseBlock(
                     text = data.summary,
                     style = TextStyle(
                         fontSize = 13.sp,
-                        color = if (data.isFileLink) colors.accent else colors.textSecondary,
-                        textDecoration = if (isClickableFile && summaryHovered)
+                        color = if (isClickableFile || isClickableUrl) colors.accent else colors.textSecondary,
+                        textDecoration = if ((isClickableFile || isClickableUrl) && summaryHovered)
                             androidx.compose.ui.text.style.TextDecoration.Underline else null,
                     ),
                     maxLines = 1,
@@ -202,6 +210,11 @@ fun ComposeToolUseBlock(
                                 Modifier
                                     .hoverable(summaryInteraction)
                                     .clickable { onFileClick(data.filePath) }
+                                    .pointerHoverIcon(PointerIcon.Hand)
+                            } else if (isClickableUrl) {
+                                Modifier
+                                    .hoverable(summaryInteraction)
+                                    .clickable { onUrlClick(data.summary) }
                                     .pointerHoverIcon(PointerIcon.Hand)
                             } else Modifier
                         ),
@@ -227,33 +240,42 @@ fun ComposeToolUseBlock(
             }
 
             // Action buttons (show diff / revert) — visible on hover for completed edit/write tools (not for read)
-            if (isHovered && data.status == ToolStatus.COMPLETED && data.expandable != null && !isReadTool) {
-                if (onShowDiff != null && (data.expandable is ExpandableContent.Diff || data.expandable is ExpandableContent.Code)) {
-                    ToolActionButton(
-                        icon = "\u2194",
-                        tooltip = "Diff",
-                        onClick = onShowDiff,
-                    )
-                    Spacer(Modifier.width(2.dp))
+            DisableSelection {
+                if (isHovered && data.status == ToolStatus.COMPLETED && data.expandable != null && !isReadTool) {
+                    if (onShowDiff != null && (data.expandable is ExpandableContent.Diff || data.expandable is ExpandableContent.Code)) {
+                        ToolActionButton(
+                            icon = "\u2194",
+                            tooltip = "Diff",
+                            onClick = onShowDiff,
+                        )
+                        Spacer(Modifier.width(2.dp))
+                    }
+                    if (onRevert != null && (data.expandable is ExpandableContent.Diff || data.expandable is ExpandableContent.Code)) {
+                        var showRevertConfirm by remember { mutableStateOf(false) }
+                        ToolActionButton(
+                            icon = "\u21A9",
+                            tooltip = "Revert",
+                            onClick = { showRevertConfirm = true },
+                        )
+                        if (showRevertConfirm) {
+                            RevertConfirmPopup(
+                                onConfirm = { showRevertConfirm = false; onRevert() },
+                                onDismiss = { showRevertConfirm = false },
+                            )
+                        }
+                        Spacer(Modifier.width(2.dp))
+                    }
                 }
-                if (onRevert != null && (data.expandable is ExpandableContent.Diff || data.expandable is ExpandableContent.Code)) {
-                    ToolActionButton(
-                        icon = "\u21A9",
-                        tooltip = "Revert",
-                        onClick = onRevert,
-                    )
-                    Spacer(Modifier.width(2.dp))
-                }
-            }
 
-            // Stop task button — for running subagent/task tool uses
-            if (onStopTask != null && data.taskId != null && data.status == ToolStatus.PENDING) {
-                ToolActionButton(
-                    icon = "\u23F9",
-                    tooltip = "Stop",
-                    onClick = onStopTask,
-                )
-                Spacer(Modifier.width(4.dp))
+                // Stop task button — for running subagent/task tool uses
+                if (onStopTask != null && data.taskId != null && data.status == ToolStatus.PENDING) {
+                    ToolActionButton(
+                        icon = "\u23F9",
+                        tooltip = "Stop",
+                        onClick = onStopTask,
+                    )
+                    Spacer(Modifier.width(4.dp))
+                }
             }
 
             Spacer(Modifier.width(4.dp))
@@ -319,7 +341,7 @@ fun ComposeToolUseBlock(
                                 .verticalScroll(mdScrollState)
                                 .padding(horizontal = 12.dp, vertical = 8.dp),
                         ) {
-                            ComposeMarkdownContent(markdown = content.text, selectable = true)
+                            ComposeMarkdownContent(markdown = content.text)
                         }
                     }
                     null -> {}
@@ -332,7 +354,6 @@ fun ComposeToolUseBlock(
 @Composable
 fun ToolStatusBadge(
     status: ToolStatus,
-    compact: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalClaudeColors.current
@@ -341,27 +362,35 @@ fun ToolStatusBadge(
         ToolStatus.COMPLETED -> "Done" to colors.statusSuccess
         ToolStatus.ERROR -> "Error" to colors.statusError
     }
-    val fontSize = if (compact) 9.sp else 10.sp
-    val horizontal = if (compact) 6.dp else 7.dp
-    val vertical = if (compact) 1.dp else 2.dp
+    val fontSize = 10.sp
+    val badgeWidth = 64.dp
+    val badgeHeight = 20.dp
 
     Box(
+        contentAlignment = Alignment.Center,
         modifier = modifier
+            .width(badgeWidth)
+            .height(badgeHeight)
             .clip(RoundedCornerShape(999.dp))
             .background(color.copy(alpha = 0.14f))
             .border(1.dp, color.copy(alpha = 0.4f), RoundedCornerShape(999.dp))
-            .padding(horizontal = horizontal, vertical = vertical),
     ) {
         Text(
             text = label,
             style = TextStyle(
                 fontSize = fontSize,
-                lineHeight = fontSize,
                 color = color,
                 fontWeight = FontWeight.SemiBold,
             ),
+            maxLines = 1,
         )
     }
+}
+
+private fun isHttpUrl(text: String): Boolean {
+    val trimmed = text.trim()
+    return trimmed.startsWith("http://", ignoreCase = true) ||
+        trimmed.startsWith("https://", ignoreCase = true)
 }
 
 // ── Diff rendering ─────────────────────────────────────────────────────
@@ -726,8 +755,79 @@ private fun getToolEmoji(toolName: String): String {
         lower == "task" || lower == "taskoutput" -> "\uD83D\uDCCB"
         lower == "webfetch" || lower == "websearch" -> "\uD83C\uDF10"
         lower == "todowrite" || lower.startsWith("update_plan") -> "\u2705"
+        lower == "notebookedit" || lower == "notebook_edit" -> "\uD83D\uDCD3"
+        lower == "askuserquestion" || lower == "ask_user_question" -> "\u2753"
         lower in setOf("skill", "useskill", "runskill", "run_skill", "execute_skill") -> "\u2728"
         lower.startsWith("mcp__") -> "\uD83D\uDD0C"
         else -> "\u26A1"
+    }
+}
+
+/**
+ * Compact confirmation popup for revert actions.
+ */
+@Composable
+fun RevertConfirmPopup(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val colors = LocalClaudeColors.current
+
+    Popup(
+        alignment = Alignment.TopEnd,
+        offset = IntOffset(0, 32),
+        onDismissRequest = onDismiss,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .background(colors.surfaceSecondary, RoundedCornerShape(8.dp))
+                .border(1.dp, colors.borderNormal, RoundedCornerShape(8.dp))
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = UcuBundle.message("tool.revert.confirm"),
+                style = TextStyle(fontSize = 12.sp, color = colors.textPrimary),
+                maxLines = 1,
+            )
+            // Cancel button
+            val cancelInteraction = remember { MutableInteractionSource() }
+            val cancelHovered by cancelInteraction.collectIsHoveredAsState()
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(if (cancelHovered) colors.surfaceHover else colors.surfacePrimary)
+                    .border(1.dp, colors.borderNormal, RoundedCornerShape(4.dp))
+                    .hoverable(cancelInteraction)
+                    .clickable(interactionSource = cancelInteraction, indication = null, onClick = onDismiss)
+                    .pointerHoverIcon(PointerIcon.Hand)
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+            ) {
+                Text(
+                    text = UcuBundle.message("tool.revert.no"),
+                    style = TextStyle(fontSize = 11.sp, color = colors.textSecondary),
+                )
+            }
+            // Revert (destructive) button
+            val revertInteraction = remember { MutableInteractionSource() }
+            val revertHovered by revertInteraction.collectIsHoveredAsState()
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(if (revertHovered) colors.statusError else colors.statusError.copy(alpha = 0.85f))
+                    .hoverable(revertInteraction)
+                    .clickable(interactionSource = revertInteraction, indication = null, onClick = onConfirm)
+                    .pointerHoverIcon(PointerIcon.Hand)
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+            ) {
+                Text(
+                    text = UcuBundle.message("tool.revert.yes"),
+                    style = TextStyle(fontSize = 11.sp, color = androidx.compose.ui.graphics.Color.White, fontWeight = FontWeight.Medium),
+                )
+            }
+        }
     }
 }

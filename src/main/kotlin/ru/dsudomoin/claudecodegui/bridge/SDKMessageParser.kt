@@ -2,6 +2,8 @@ package ru.dsudomoin.claudecodegui.bridge
 
 import com.intellij.openapi.diagnostic.Logger
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -30,6 +32,22 @@ object SDKMessageParser {
     private val json = Json {
         ignoreUnknownKeys = true
         isLenient = true
+    }
+
+    private fun extractStringLikeList(
+        element: JsonElement?,
+        objectKeys: List<String> = emptyList(),
+    ): List<String> {
+        val arr = element as? JsonArray ?: return emptyList()
+        return arr.mapNotNull { item ->
+            when (item) {
+                is JsonPrimitive -> item.contentOrNull
+                is JsonObject -> objectKeys.firstNotNullOfOrNull { key ->
+                    item[key]?.jsonPrimitive?.contentOrNull
+                }
+                else -> null
+            }?.trim()?.takeIf { it.isNotBlank() }
+        }
     }
 
     /**
@@ -300,9 +318,10 @@ object SDKMessageParser {
                             path = p["path"]?.jsonPrimitive?.content ?: "",
                         )
                     } ?: emptyList()
-                    val slashCommands = obj["slashCommands"]?.jsonArray
-                        ?.mapNotNull { it.jsonPrimitive.contentOrNull }
-                        ?: emptyList()
+                    val slashCommands = extractStringLikeList(
+                        element = obj["slashCommands"],
+                        objectKeys = listOf("name", "command", "id")
+                    )
                     val betas = obj["betas"]?.jsonArray
                         ?.mapNotNull { it.jsonPrimitive.contentOrNull }
                         ?: emptyList()
@@ -340,7 +359,17 @@ object SDKMessageParser {
                 "FILES_PERSISTED" -> {
                     val obj = json.parseToJsonElement(payload).jsonObject
                     val files = obj["files"]?.jsonArray
-                        ?.mapNotNull { it.jsonPrimitive.contentOrNull }
+                        ?.mapNotNull { element ->
+                            when (element) {
+                                is JsonPrimitive -> element.contentOrNull
+                                is JsonObject -> {
+                                    element["file_path"]?.jsonPrimitive?.contentOrNull
+                                        ?: element["path"]?.jsonPrimitive?.contentOrNull
+                                        ?: element["file"]?.jsonPrimitive?.contentOrNull
+                                }
+                                else -> null
+                            }
+                        }
                         ?: emptyList()
                     ParsedEvent.Stream(StreamEvent.FilesPersisted(files))
                 }

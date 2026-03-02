@@ -67,6 +67,7 @@ class ChatController(
         private val log = Logger.getInstance(ChatController::class.java)
         private val URL_PATTERN = Regex("https?://\\S+")
         private val SKILL_TOOL_NAMES = setOf("skill", "useskill", "runskill", "run_skill", "execute_skill")
+        private val TODO_TOOL_NAMES = setOf("todowrite", "todo_write")
     }
 
     /** EDT dispatcher — avoids dependency on kotlinx-coroutines-swing (classloader conflicts). */
@@ -151,20 +152,43 @@ class ChatController(
         // Check setup status on launch
         scope.launch { checkSetup() }
 
-        // Preload slash commands from SDK in background
-        if (!SlashCommandRegistry.isLoaded) {
-            scope.launch {
-                val commands = onIO { provider.fetchSlashCommands() }
-                if (commands.isNotEmpty()) {
-                    SlashCommandRegistry.updateSdkCommands(commands)
-                }
-            }
-        }
+        // Preload slash commands from SDK in background.
+        // Retry because bridge/node setup may still be initializing when controller starts.
+        scope.launch { preloadSlashCommandsWithRetry() }
 
         // Check for SDK updates in background
         scope.launch {
             checkSdkUpdate()
         }
+    }
+
+    private suspend fun preloadSlashCommandsWithRetry() {
+        if (SlashCommandRegistry.isLoaded && SlashCommandRegistry.sdkCount() > 0) return
+
+        val maxAttempts = 3
+        for (attempt in 1..maxAttempts) {
+            val commands = onIO { provider.fetchSlashCommands() }
+            if (commands.isNotEmpty()) {
+                SlashCommandRegistry.updateSdkCommands(commands)
+                val sdkCount = SlashCommandRegistry.sdkCount()
+                if (sdkCount > 0) {
+                    log.info("Slash commands loaded successfully: total=${commands.size}, visibleSdk=$sdkCount")
+                    return
+                }
+                log.warn(
+                    "Slash commands fetch returned ${commands.size} entries " +
+                        "but none are visible after filtering (attempt $attempt/$maxAttempts)"
+                )
+            } else {
+                log.warn("Slash commands fetch returned empty list (attempt $attempt/$maxAttempts)")
+            }
+
+            if (attempt < maxAttempts) {
+                delay(1500L * attempt)
+            }
+        }
+
+        log.warn("Slash commands were not loaded after $maxAttempts attempts; autocomplete will remain limited")
     }
 
     private suspend fun checkSetup() {
@@ -406,7 +430,8 @@ class ChatController(
 
     fun sendFromCompose() {
         val text = viewModel.inputText.trim()
-        if (text.isBlank()) return
+        val hasImages = viewModel.attachedImages.isNotEmpty()
+        if (text.isBlank() && !hasImages) return
         viewModel.inputText = ""
         onSendMessage(text)
     }
@@ -589,6 +614,7 @@ class ChatController(
         val toolResults = mutableMapOf<String, Pair<String, Boolean>>()
         val compactBoundaries = mutableListOf<CompactBoundaryMarker>()
         val taskToToolUseId = mutableMapOf<String, String>()
+        val backgroundTaskToolIds = mutableSetOf<String>()
         val toolProgressNotes = mutableMapOf<String, MutableList<String>>()
         val toolSummaryOverrides = mutableMapOf<String, String>()
         val toolEventOrder = mutableMapOf<String, Int>()
@@ -600,6 +626,7 @@ class ChatController(
         var compactAfterResponse = false  // set when user approves plan with compact
         var hasError = false
         var streamEventOrdinal = 0
+        var sawTodoWriteInThisResponse = false
 
         fun rebuildFlowNow() {
             contentFlowRebuildJob?.cancel()
@@ -654,6 +681,9 @@ class ChatController(
 
         fun addToolUseBlock(id: String, name: String, input: JsonObject) {
             if (toolUseBlocks.any { it.id == id }) return
+            if (name.lowercase() in TODO_TOOL_NAMES) {
+                sawTodoWriteInThisResponse = true
+            }
             val toolBlock = ContentBlock.ToolUse(id, name, input)
             toolUseBlocks.add(toolBlock)
             textCheckpoints.add(responseText.length)
@@ -818,6 +848,14 @@ class ChatController(
                                 taskToToolUseId[event.taskId] = toolUseId
                             }
                             ensureSyntheticTaskTool(toolUseId, event.description, event.taskType)
+                            // Revert premature COMPLETED from TOOL_RESULT that arrived
+                            // before TASK_STARTED for background tasks
+                            if (!toolUseId.isNullOrBlank()) {
+                                backgroundTaskToolIds.add(toolUseId)
+                                toolResults.remove(toolUseId)
+                                statusTracker.resetSubagentToRunning(toolUseId)
+                                syncStatusToViewModel()
+                            }
                             appendProgressNote(
                                 toolUseId,
                                 "Started: ${event.description.ifBlank { event.taskType ?: "task" }}"
@@ -848,6 +886,9 @@ class ChatController(
                             val toolUseId = event.toolUseId ?: taskToToolUseId[event.taskId]
                             if (!event.taskId.isBlank() && !toolUseId.isNullOrBlank()) {
                                 taskToToolUseId[event.taskId] = toolUseId
+                            }
+                            if (!toolUseId.isNullOrBlank()) {
+                                backgroundTaskToolIds.remove(toolUseId)
                             }
                             ensureSyntheticTaskTool(toolUseId, event.summary, null)
 
@@ -974,6 +1015,17 @@ class ChatController(
                             if (hasError) return@collect
                             contentFlowRebuildJob?.cancel()
                             contentFlowRebuildJob = null
+
+                            if (sawTodoWriteInThisResponse) {
+                                val finalized = statusTracker.completeInProgressTodos()
+                                if (finalized > 0) {
+                                    log.warn(
+                                        "Finalized $finalized in-progress todo(s) on StreamEnd " +
+                                            "(missing final TodoWrite update)"
+                                    )
+                                    syncStatusToViewModel()
+                                }
+                            }
 
                             sessionId = provider.sessionId
                             persistCustomTitleIfPossible()
@@ -1107,6 +1159,7 @@ class ChatController(
                                     toolResults.clear()
                                     compactBoundaries.clear()
                                     taskToToolUseId.clear()
+                                    backgroundTaskToolIds.clear()
                                     toolProgressNotes.clear()
                                     toolSummaryOverrides.clear()
                                     toolEventOrder.clear()
@@ -1534,28 +1587,33 @@ class ChatController(
                 statusTracker.updateTodos(items)
             }
             lower in setOf("edit", "edit_file", "replace_string") -> {
-                val filePath = input["file_path"]?.jsonPrimitive?.contentOrNull
-                    ?: input["path"]?.jsonPrimitive?.contentOrNull ?: return
-                val oldString = input["old_string"]?.jsonPrimitive?.contentOrNull
-                    ?: input["old_str"]?.jsonPrimitive?.contentOrNull ?: ""
-                val newString = input["new_string"]?.jsonPrimitive?.contentOrNull
-                    ?: input["new_str"]?.jsonPrimitive?.contentOrNull ?: ""
+                val filePath = ToolSummaryExtractor.extractFilePath(input) ?: return
+                val (oldString, newString) = ToolSummaryExtractor.extractEditDiffStrings(input) ?: ("" to "")
                 statusTracker.trackFileChange(name, filePath, oldString, newString)
             }
             lower in setOf("write", "write_to_file", "create_file") -> {
-                val filePath = input["file_path"]?.jsonPrimitive?.contentOrNull
-                    ?: input["path"]?.jsonPrimitive?.contentOrNull ?: return
-                val content = input["content"]?.jsonPrimitive?.contentOrNull
-                    ?: input["file_text"]?.jsonPrimitive?.contentOrNull ?: ""
+                val filePath = ToolSummaryExtractor.extractFilePath(input) ?: return
+                val content = ToolSummaryExtractor.extractWriteContent(input) ?: ""
                 val isNew = !File(filePath).exists()
                 statusTracker.trackFileWrite(filePath, content, isNew)
             }
-            lower == "task" -> {
+            lower in setOf("task", "agent") -> {
                 val type = input["subagent_type"]?.jsonPrimitive?.contentOrNull
                     ?: input["type"]?.jsonPrimitive?.contentOrNull ?: "unknown"
                 val description = input["description"]?.jsonPrimitive?.contentOrNull
                     ?: input["prompt"]?.jsonPrimitive?.contentOrNull?.take(80) ?: ""
                 statusTracker.trackSubagent(id, type, description)
+            }
+            ToolSummaryExtractor.hasEditLikePayload(input) -> {
+                val filePath = ToolSummaryExtractor.extractFilePath(input) ?: return
+                val (oldString, newString) = ToolSummaryExtractor.extractEditDiffStrings(input) ?: return
+                statusTracker.trackFileChange(name, filePath, oldString, newString)
+            }
+            ToolSummaryExtractor.hasWriteLikePayload(input) -> {
+                val filePath = ToolSummaryExtractor.extractFilePath(input) ?: return
+                val content = ToolSummaryExtractor.extractWriteContent(input) ?: ""
+                val isNew = !File(filePath).exists()
+                statusTracker.trackFileWrite(filePath, content, isNew)
             }
         }
     }
@@ -1648,7 +1706,7 @@ class ChatController(
                         summary = summary,
                         diffAdd = diffAdd,
                         diffDel = diffDel,
-                        category = classifyToolCategory(tool.name),
+                        category = classifyToolCategory(tool.name, tool.input),
                     )
                 )
             )
@@ -1712,12 +1770,13 @@ class ChatController(
                 flow.add(ContentFlowItem.ToolBlock(ToolUseData(
                     id = e.tool.id,
                     toolName = e.tool.name,
-                    displayName = ToolSummaryExtractor.getToolDisplayName(e.tool.name),
+                    displayName = ToolSummaryExtractor.getToolDisplayName(e.tool.name, e.tool.input),
                     summary = e.summary,
                     status = e.status,
                     expandable = e.expandable,
                     diffAdditions = e.diffAdd,
                     diffDeletions = e.diffDel,
+                    isFileLink = e.category == ToolCategoryType.READ || e.category == ToolCategoryType.EDIT,
                     filePath = ToolSummaryExtractor.extractFilePath(e.tool.input),
                     taskId = toolUseIdToTaskId[e.tool.id],
                 )))
@@ -1747,7 +1806,7 @@ class ChatController(
         viewModel.streamingContentFlow = flow
     }
 
-    private fun classifyToolCategory(toolName: String): ToolCategoryType {
+    private fun classifyToolCategory(toolName: String, input: JsonObject): ToolCategoryType {
         val lower = toolName.lowercase()
         return when {
             lower in setOf("read", "read_file") -> ToolCategoryType.READ
@@ -1755,6 +1814,8 @@ class ChatController(
             lower in setOf("bash", "run_terminal_cmd", "execute_command", "executecommand", "shell_command") -> ToolCategoryType.BASH
             lower in setOf("grep", "search", "glob", "find", "list", "listfiles") -> ToolCategoryType.SEARCH
             lower in setOf("write", "write_to_file", "save-file", "create_file") -> ToolCategoryType.EDIT
+            ToolSummaryExtractor.hasEditLikePayload(input) -> ToolCategoryType.EDIT
+            ToolSummaryExtractor.hasWriteLikePayload(input) -> ToolCategoryType.EDIT
             lower in SKILL_TOOL_NAMES -> ToolCategoryType.SKILL
             else -> ToolCategoryType.OTHER
         }
@@ -1801,21 +1862,62 @@ class ChatController(
             val markdown = buildSkillExpandableMarkdown(input, resultContent, progressNotes)
             if (markdown.isNotBlank()) return ExpandableContent.Markdown(markdown)
         }
-        // Edit tools → diff from input with file path for syntax highlighting
-        if (lower in setOf("edit", "edit_file", "replace_string")) {
-            val diff = ToolSummaryExtractor.extractEditDiffStrings(input)
-            if (diff != null) {
-                val filePath = ToolSummaryExtractor.extractFilePath(input)
-                return ExpandableContent.Diff(diff.first, diff.second, filePath)
+        if (lower.startsWith("mcp__")) {
+            if (resultContent?.isNotBlank() == true) return ExpandableContent.Markdown(resultContent)
+            if (progressNotes.isNotEmpty()) return ExpandableContent.PlainText(progressNotes.joinToString("\n"))
+        }
+        // TodoWrite → formatted todo list
+        if (lower in TODO_TOOL_NAMES) {
+            val todosArray = input["todos"]?.jsonArray
+            if (todosArray != null && todosArray.isNotEmpty()) {
+                val text = todosArray.mapNotNull { element ->
+                    val obj = element.jsonObject
+                    val content = obj["content"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                    val statusStr = obj["status"]?.jsonPrimitive?.contentOrNull ?: "pending"
+                    val icon = when (statusStr.lowercase()) {
+                        "completed" -> "✅"
+                        "in_progress" -> "🔄"
+                        else -> "⬜"
+                    }
+                    "$icon $content"
+                }.joinToString("\n")
+                if (text.isNotBlank()) return ExpandableContent.PlainText(text)
             }
         }
-        // Write/Create tools → syntax-highlighted code content
-        if (lower in setOf("write", "write_to_file", "save-file", "create_file")) {
-            val content = ToolSummaryExtractor.extractWriteContent(input)
-            if (content != null && content.isNotBlank()) {
+        // NotebookEdit → new cell source code
+        if (lower == "notebookedit" || lower == "notebook_edit") {
+            val newSource = ToolSummaryExtractor.getStringFieldPublic(input, "new_source")
+            if (!newSource.isNullOrBlank()) {
                 val filePath = ToolSummaryExtractor.extractFilePath(input)
-                return ExpandableContent.Code(content, filePath)
+                return ExpandableContent.Code(newSource, filePath)
             }
+        }
+        // AskUserQuestion → formatted questions list
+        if (lower == "askuserquestion" || lower == "ask_user_question") {
+            val questionsArray = input["questions"]?.jsonArray
+            if (questionsArray != null && questionsArray.isNotEmpty()) {
+                val text = questionsArray.mapNotNull { element ->
+                    val obj = element.jsonObject
+                    val question = obj["question"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                    val options = obj["options"]?.jsonArray?.mapNotNull { opt ->
+                        opt.jsonObject["label"]?.jsonPrimitive?.contentOrNull
+                    }?.joinToString(", ")
+                    if (options != null) "❓ $question\n   → $options" else "❓ $question"
+                }.joinToString("\n\n")
+                if (text.isNotBlank()) return ExpandableContent.PlainText(text)
+            }
+        }
+        // Edit-like payloads → diff from input with file path for syntax highlighting.
+        val diff = ToolSummaryExtractor.extractEditDiffStrings(input)
+        if (diff != null) {
+            val filePath = ToolSummaryExtractor.extractFilePath(input)
+            return ExpandableContent.Diff(diff.first, diff.second, filePath)
+        }
+        // Write-like payloads → syntax-highlighted code content.
+        val content = ToolSummaryExtractor.extractWriteContent(input)
+        if (content != null && content.isNotBlank() && ToolSummaryExtractor.extractFilePath(input) != null) {
+            val filePath = ToolSummaryExtractor.extractFilePath(input)
+            return ExpandableContent.Code(content, filePath)
         }
         // Bash tools → command from input + result output
         if (lower in setOf("bash", "run_terminal_cmd", "execute_command", "executecommand", "shell_command")) {
@@ -1838,11 +1940,8 @@ class ChatController(
     }
 
     private fun computeDiffStatsForTool(toolName: String, input: JsonObject): Pair<Int, Int> {
-        val lower = toolName.lowercase()
-        if (lower in setOf("edit", "edit_file", "replace_string")) {
-            val diff = ToolSummaryExtractor.extractEditDiffStrings(input)
-            if (diff != null) return computeDiffStats(diff.first, diff.second)
-        }
+        val diff = ToolSummaryExtractor.extractEditDiffStrings(input)
+        if (diff != null) return computeDiffStats(diff.first, diff.second)
         return 0 to 0
     }
 

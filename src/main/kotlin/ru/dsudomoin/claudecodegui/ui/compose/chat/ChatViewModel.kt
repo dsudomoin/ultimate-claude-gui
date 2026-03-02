@@ -46,6 +46,10 @@ class ChatViewModel {
         THINKING_COLLAPSED,
         SCROLL_TRIGGER,
         FORCE_SCROLL_TRIGGER,
+        VIEWPORT_RESTORE_TRIGGER,
+        VIEWPORT_FOCUS_LOST_TRIGGER,
+        TAB_ACTIVATED,
+        PANEL_VISIBILITY,
         TODOS,
         FILE_CHANGES,
         AGENTS,
@@ -312,6 +316,61 @@ class ChatViewModel {
         forceScrollToBottomTrigger++
         notifyField(Field.FORCE_SCROLL_TRIGGER)
     }
+
+    /**
+     * Explicit viewport restore trigger (used when plugin regains focus and
+     * the Compose scroll container may have clamped/reset offset).
+     */
+    var viewportRestoreTrigger: Int = 0
+        private set
+
+    fun requestViewportRestore() {
+        viewportRestoreTrigger++
+        notifyField(Field.VIEWPORT_RESTORE_TRIGGER)
+    }
+
+    /**
+     * Triggered when focus leaves chat panel (editor/toolwindow swap).
+     * Compose uses this moment to snapshot a stable viewport anchor before
+     * any transient focus/layout clamps can overwrite persisted state.
+     */
+    var viewportFocusLostTrigger: Int = 0
+        private set
+
+    fun requestViewportFocusLost() {
+        viewportFocusLostTrigger++
+        notifyField(Field.VIEWPORT_FOCUS_LOST_TRIGGER)
+    }
+
+    /**
+     * Triggered when the tab containing this chat becomes the selected tab.
+     * Compose uses this to recreate scroll state from persisted viewport after
+     * hide/show lifecycle transitions.
+     */
+    var tabActivatedTrigger: Int = 0
+        private set
+
+    fun requestTabActivated() {
+        tabActivatedTrigger++
+        notifyField(Field.TAB_ACTIVATED)
+    }
+
+    /** True when the host Swing panel is currently shown in selected tab. */
+    var panelVisible: Boolean = true
+        private set
+
+    fun setPanelVisible(visible: Boolean) {
+        if (panelVisible == visible) return
+        panelVisible = visible
+        notifyField(Field.PANEL_VISIBILITY)
+    }
+
+    /**
+     * Last known chat viewport position.
+     * Not observable — consumed directly by Compose scroll logic.
+     */
+    var persistedScrollValue: Int = 0
+    var persistedScrollMaxValue: Int = 0
 }
 
 /** Display data for a queued message (decoupled from ChatPanel.QueuedMessage). */

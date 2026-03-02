@@ -375,6 +375,19 @@ fun ComposeChatInputPanel(
                                     onMentionDismiss()
                                     true
                                 }
+                                // Tab = accept top prompt suggestion when input is empty
+                                !slashPopupVisible && !mentionPopupVisible
+                                    && event.key == Key.Tab
+                                    && promptSuggestions.isNotEmpty()
+                                    && tfv.text.isBlank() -> {
+                                    val suggestion = promptSuggestions.first().trim()
+                                    if (suggestion.isNotEmpty()) {
+                                        tfv = TextFieldValue(suggestion, TextRange(suggestion.length))
+                                        onTextChange(suggestion)
+                                        onPromptSuggestionClick(suggestion)
+                                    }
+                                    true
+                                }
                                 // Shift+Enter = insert newline at cursor position
                                 event.key == Key.Enter && event.isShiftPressed -> {
                                     val cursorPos = tfv.selection.start
@@ -385,8 +398,11 @@ fun ComposeChatInputPanel(
                                 }
                                 // Plain Enter = send message (or queue if already sending)
                                 event.key == Key.Enter -> {
-                                    if (text.isNotBlank()) {
-                                        onAddToHistory(text)
+                                    val currentText = tfv.text
+                                    val hasText = currentText.isNotBlank()
+                                    val hasImages = attachedImages.isNotEmpty()
+                                    if (hasText || hasImages) {
+                                        if (hasText) onAddToHistory(currentText)
                                         historyIndex = -1
                                         historyDraft = ""
                                         onSendOrStop()

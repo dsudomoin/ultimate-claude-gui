@@ -13,6 +13,12 @@
 </p>
 
 <p align="center">
+  <a href="https://plugins.jetbrains.com/plugin/30343-ultimate-claude-gui"><img src="https://img.shields.io/jetbrains/plugin/v/30343-ultimate-claude-gui.svg?label=Marketplace&style=flat-square" alt="JetBrains Plugin Version"/></a>
+  <a href="https://plugins.jetbrains.com/plugin/30343-ultimate-claude-gui"><img src="https://img.shields.io/jetbrains/plugin/d/30343-ultimate-claude-gui.svg?style=flat-square" alt="Downloads"/></a>
+  <a href="https://plugins.jetbrains.com/plugin/30343-ultimate-claude-gui"><img src="https://img.shields.io/jetbrains/plugin/r/rating/30343-ultimate-claude-gui?style=flat-square" alt="Rating"/></a>
+</p>
+
+<p align="center">
   <a href="#installation">Installation</a> &bull;
   <a href="#features">Features</a> &bull;
   <a href="#architecture">Architecture</a> &bull;

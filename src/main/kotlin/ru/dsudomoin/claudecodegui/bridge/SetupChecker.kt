@@ -64,7 +64,9 @@ object SetupChecker {
             val info = OAuthCredentialService.getInstance().getLoginInfo()
             when {
                 !info.loggedIn -> AuthStatus(state = AuthState.NOT_LOGGED_IN)
-                info.expired -> AuthStatus(state = AuthState.EXPIRED)
+                // Access token may be expired while refresh token is valid.
+                // In this case the CLI can refresh seamlessly and the session is still usable.
+                info.expired && !info.hasRefreshToken -> AuthStatus(state = AuthState.EXPIRED)
                 else -> AuthStatus(state = AuthState.OK, source = info.source)
             }
         } catch (_: Exception) {

@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.selection.DisableSelection
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -30,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
@@ -147,38 +150,46 @@ fun ComposeMessageList(
         return
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
-        Column(
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            modifier = modifier
-                .fillMaxSize()
-                .verticalScroll(scrollState)
-                .padding(start = 8.dp, end = 14.dp, top = 6.dp, bottom = 6.dp),
-        ) {
-            messages.forEachIndexed { index, message ->
-                val prevRole = if (index > 0) messages[index - 1].role else null
+    // focusProperties { canFocus = false } prevents Compose's focus system from routing
+    // focus into the scroll container.  Without this, focus entering the ComposePanel
+    // (editor→plugin, tab switch, Alt-Tab) causes Compose to "bring focused element into
+    // view" inside the scrollable Column — corrupting ScrollState.value and producing
+    // visible scroll jumps.  Mouse-based text selection (drag, double-click) still works
+    // because it's driven by pointerInput, not by focus.
+    Box(modifier = modifier.fillMaxSize().focusProperties { canFocus = false }) {
+        SelectionContainer {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scrollState)
+                    .padding(start = 8.dp, end = 14.dp, top = 6.dp, bottom = 6.dp),
+            ) {
+                messages.forEachIndexed { index, message ->
+                    val prevRole = if (index > 0) messages[index - 1].role else null
 
-                if (prevRole != null && prevRole != message.role) {
-                    MessageSeparator()
+                    if (prevRole != null && prevRole != message.role) {
+                        MessageSeparator()
+                    }
+
+                    val isLastMessage = index == messages.lastIndex
+                    val isStreamingBubble = isLastMessage && message.role == Role.ASSISTANT
+
+                    MessageWrapper(
+                        message = message,
+                        streaming = isStreamingBubble,
+                        streamingState = if (isStreamingBubble) streamingState else null,
+                        contentFlow = if (isStreamingBubble) streamingContentFlow else null,
+                        onFileClick = onFileClick,
+                        onUrlClick = onUrlClick,
+                        onToolShowDiff = onToolShowDiff,
+                        onToolRevert = onToolRevert,
+                        onStopTask = onStopTask,
+                    )
                 }
-
-                val isLastMessage = index == messages.lastIndex
-                val isStreamingBubble = isLastMessage && message.role == Role.ASSISTANT
-
-                MessageWrapper(
-                    message = message,
-                    streaming = isStreamingBubble,
-                    streamingState = if (isStreamingBubble) streamingState else null,
-                    contentFlow = if (isStreamingBubble) streamingContentFlow else null,
-                    onFileClick = onFileClick,
-                    onUrlClick = onUrlClick,
-                    onToolShowDiff = onToolShowDiff,
-                    onToolRevert = onToolRevert,
-                    onStopTask = onStopTask,
-                )
+                // Scroll anchor
+                Spacer(Modifier.height(1.dp))
             }
-            // Scroll anchor
-            Spacer(Modifier.height(1.dp))
         }
 
         VerticalScrollbar(
@@ -225,7 +236,9 @@ private fun MessageWrapper(
                         style = TextStyle(fontSize = 11.sp, color = colors.textSecondary),
                     )
                     Spacer(Modifier.width(6.dp))
-                    CopyButton(text = message.textContent, alwaysVisible = true)
+                    DisableSelection {
+                        CopyButton(text = message.textContent, alwaysVisible = true)
+                    }
                 }
 
                 ComposeMessageBubble(
@@ -258,14 +271,16 @@ private fun MessageWrapper(
 
                 // Copy button (top-right, visible on hover)
                 if (!streaming) {
-                    Box(
-                        modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
-                    ) {
-                        CopyButton(
-                            text = message.textContent,
-                            alwaysVisible = false,
-                            forceVisible = messageHovered,
-                        )
+                    DisableSelection {
+                        Box(
+                            modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
+                        ) {
+                            CopyButton(
+                                text = message.textContent,
+                                alwaysVisible = false,
+                                forceVisible = messageHovered,
+                            )
+                        }
                     }
                 }
             }

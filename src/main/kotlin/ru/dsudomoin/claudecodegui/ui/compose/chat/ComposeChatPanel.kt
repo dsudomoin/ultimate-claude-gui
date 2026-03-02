@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.ScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -133,6 +133,8 @@ fun ComposeChatPanel(
     var thinkingCollapsed by remember { mutableStateOf(viewModel.thinkingCollapsed) }
     var scrollToBottomTrigger by remember { mutableIntStateOf(viewModel.scrollToBottomTrigger) }
     var forceScrollToBottomTrigger by remember { mutableIntStateOf(viewModel.forceScrollToBottomTrigger) }
+    var tabActivatedTrigger by remember { mutableIntStateOf(viewModel.tabActivatedTrigger) }
+    var panelVisible by remember { mutableStateOf(viewModel.panelVisible) }
     var todos by remember { mutableStateOf(viewModel.todos) }
     var fileChanges by remember { mutableStateOf(viewModel.fileChanges) }
     var agents by remember { mutableStateOf(viewModel.agents) }
@@ -152,6 +154,10 @@ fun ComposeChatPanel(
                 ChatViewModel.Field.THINKING_COLLAPSED -> thinkingCollapsed = viewModel.thinkingCollapsed
                 ChatViewModel.Field.SCROLL_TRIGGER -> scrollToBottomTrigger = viewModel.scrollToBottomTrigger
                 ChatViewModel.Field.FORCE_SCROLL_TRIGGER -> forceScrollToBottomTrigger = viewModel.forceScrollToBottomTrigger
+                ChatViewModel.Field.VIEWPORT_RESTORE_TRIGGER -> { /* no-op: scroll corruption fixed at source */ }
+                ChatViewModel.Field.VIEWPORT_FOCUS_LOST_TRIGGER -> { /* no-op: scroll corruption fixed at source */ }
+                ChatViewModel.Field.TAB_ACTIVATED -> tabActivatedTrigger = viewModel.tabActivatedTrigger
+                ChatViewModel.Field.PANEL_VISIBILITY -> panelVisible = viewModel.panelVisible
                 ChatViewModel.Field.TODOS -> todos = viewModel.todos
                 ChatViewModel.Field.FILE_CHANGES -> fileChanges = viewModel.fileChanges
                 ChatViewModel.Field.AGENTS -> agents = viewModel.agents
@@ -225,19 +231,22 @@ fun ComposeChatPanel(
     val totalInputTokens = lastResultMeta?.modelUsage?.values?.sumOf { it.inputTokens } ?: 0
     val totalOutputTokens = lastResultMeta?.modelUsage?.values?.sumOf { it.outputTokens } ?: 0
 
-    val scrollState = rememberScrollState()
+    val datasetKey = Triple(
+        messages.size,
+        messages.firstOrNull()?.timestamp ?: -1L,
+        messages.lastOrNull()?.timestamp ?: -1L,
+    )
+    val scrollState = remember(tabActivatedTrigger, datasetKey) {
+        ScrollState(initial = viewModel.persistedScrollValue.coerceAtLeast(0))
+    }
     var followTail by remember { mutableStateOf(true) }
     var autoScrollInProgress by remember { mutableStateOf(false) }
     var userInteracted by remember { mutableStateOf(false) }
     var initialBottomSnapDone by remember { mutableStateOf(false) }
     var pendingForceScrollTrigger by remember { mutableIntStateOf(0) }
-    var lastKnownScrollValue by remember { mutableIntStateOf(0) }
-    var lastKnownScrollMaxValue by remember { mutableIntStateOf(0) }
-    var wasNearBottomBeforeCollapse by remember { mutableStateOf(true) }
-    var pendingViewportRestore by remember { mutableStateOf(false) }
-    val datasetKey = messages.firstOrNull()?.timestamp
 
     suspend fun scrollToBottom(force: Boolean = false) {
+        if (!panelVisible) return
         if (!force && !followTail) return
         val target = scrollState.maxValue
         if (!force && target - scrollState.value <= 2) return
@@ -254,62 +263,42 @@ fun ComposeChatPanel(
         followTail = true
         userInteracted = false
         initialBottomSnapDone = false
-        lastKnownScrollValue = 0
-        lastKnownScrollMaxValue = 0
-        wasNearBottomBeforeCollapse = true
-        pendingViewportRestore = false
     }
 
-    // Detect user intent from actual scroll position changes.
-    LaunchedEffect(scrollState, messages.size) {
+    // Re-derive interaction state from persisted viewport when tab becomes active.
+    LaunchedEffect(tabActivatedTrigger) {
+        if (tabActivatedTrigger <= 0) return@LaunchedEffect
+        val maxValue = viewModel.persistedScrollMaxValue
+        val value = viewModel.persistedScrollValue
+        val nearBottom = maxValue > 0 && (maxValue - value) <= 24
+        followTail = nearBottom
+        userInteracted = !nearBottom
+        initialBottomSnapDone = true
+    }
+
+    // Persist viewport only while panel is visible.
+    LaunchedEffect(scrollState, messages.size, panelVisible) {
         snapshotFlow { Triple(scrollState.value, scrollState.maxValue, scrollState.isScrollInProgress) }
             .distinctUntilChanged()
             .collect { (value, maxValue, isScrollInProgress) ->
-                val hasRealViewport = maxValue > 0
-                val nearBottom = hasRealViewport && (maxValue - value) <= 24
+                if (!panelVisible || maxValue <= 0) return@collect
 
-                if (hasRealViewport) {
-                    lastKnownScrollValue = value
-                    lastKnownScrollMaxValue = maxValue
-                    wasNearBottomBeforeCollapse = nearBottom
-                } else if (messages.isNotEmpty() && lastKnownScrollMaxValue > 0) {
-                    // Tool window can report zero viewport while hidden/collapsed.
-                    pendingViewportRestore = true
-                }
+                viewModel.persistedScrollValue = value
+                viewModel.persistedScrollMaxValue = maxValue
 
-                if (pendingViewportRestore && maxValue > 0 && messages.isNotEmpty()) {
-                    if (followTail || wasNearBottomBeforeCollapse) {
-                        // Reuse the existing stabilization path that keeps tail pinned
-                        // across several layout passes.
-                        pendingForceScrollTrigger++
-                    } else {
-                        autoScrollInProgress = true
-                        try {
-                            // Preserve absolute scroll offset on viewport restore.
-                            val target = lastKnownScrollValue.coerceIn(0, maxValue)
-                            scrollState.scrollTo(target)
-                        } finally {
-                            autoScrollInProgress = false
-                        }
-                    }
-                    pendingViewportRestore = false
-                }
-
-                // Ignore synthetic zero-viewport updates (window hidden / tab switched).
-                if (hasRealViewport) {
-                    if (nearBottom) {
-                        followTail = true
-                    } else if (isScrollInProgress && !autoScrollInProgress) {
-                        followTail = false
-                        userInteracted = true
-                    }
+                val nearBottom = (maxValue - value) <= 24
+                if (nearBottom) {
+                    followTail = true
+                } else if (isScrollInProgress && !autoScrollInProgress) {
+                    followTail = false
+                    userInteracted = true
                 }
             }
     }
 
     // Initial snap-to-bottom for loaded history/session after real layout.
     LaunchedEffect(datasetKey, scrollState.maxValue, messages.size) {
-        if (messages.isEmpty() || initialBottomSnapDone || userInteracted) return@LaunchedEffect
+        if (!panelVisible || messages.isEmpty() || initialBottomSnapDone || userInteracted) return@LaunchedEffect
         when {
             scrollState.maxValue > 0 -> {
                 scrollToBottom(force = true)
@@ -323,6 +312,7 @@ fun ComposeChatPanel(
 
     // Explicit bottom requests from controller (send/load flow) while generating.
     LaunchedEffect(scrollToBottomTrigger, isStreaming, isSending) {
+        if (!panelVisible) return@LaunchedEffect
         if (scrollToBottomTrigger > 0 && (isStreaming || isSending || !userInteracted) && followTail) {
             scrollToBottom(force = true)
         }
@@ -336,8 +326,8 @@ fun ComposeChatPanel(
         }
     }
 
-    LaunchedEffect(pendingForceScrollTrigger) {
-        if (pendingForceScrollTrigger <= 0) return@LaunchedEffect
+    LaunchedEffect(pendingForceScrollTrigger, panelVisible) {
+        if (pendingForceScrollTrigger <= 0 || !panelVisible) return@LaunchedEffect
         followTail = true
         userInteracted = false
 
@@ -374,6 +364,7 @@ fun ComposeChatPanel(
 
     // Keep tail pinned during streaming updates if user didn't scroll away.
     LaunchedEffect(messages.size, streamingResponseText.length, streamingThinkingText.length, streamingContentFlow.size, isStreaming, isSending) {
+        if (!panelVisible) return@LaunchedEffect
         if (isStreaming || isSending) {
             scrollToBottom(force = false)
         }

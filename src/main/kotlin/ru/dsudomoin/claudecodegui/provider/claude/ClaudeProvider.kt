@@ -317,12 +317,25 @@ class ClaudeProvider : AiProvider {
         try {
             if (!BridgeManager.isReady) {
                 val ready = BridgeManager.ensureReady()
-                if (!ready) return@withContext localCommands
+                if (!ready) {
+                    log.warn(
+                        "Bridge is not ready for slash commands; using local only " +
+                            "(local=${localCommands.size}, cwd=$cwd)"
+                    )
+                    return@withContext localCommands
+                }
             } else {
                 BridgeManager.ensureScriptsUpdated()
             }
 
-            val nodePath = NodeDetector.detect() ?: return@withContext localCommands
+            val nodePath = NodeDetector.detect()
+            if (nodePath == null) {
+                log.warn(
+                    "Node.js was not detected for slash command fetch; using local only " +
+                        "(local=${localCommands.size}, cwd=$cwd)"
+                )
+                return@withContext localCommands
+            }
 
             val payload = buildJsonObject {
                 put("command", "getSlashCommands")
@@ -332,7 +345,8 @@ class ClaudeProvider : AiProvider {
             val process = ProcessBuilder(nodePath, BridgeManager.bridgeScript.absolutePath)
                 .directory(BridgeManager.bridgeScript.parentFile)
                 .withNodeEnvironment(nodePath)
-                .redirectErrorStream(false)
+                // Merge stderr into stdout to avoid deadlocks if bridge emits warnings.
+                .redirectErrorStream(true)
                 .start()
 
             process.outputStream.bufferedWriter().use { writer ->
@@ -342,41 +356,62 @@ class ClaudeProvider : AiProvider {
             }
 
             val result = mutableListOf<Pair<String, String>>()
+            var parseErrors = 0
 
             process.inputStream.bufferedReader().use { reader ->
                 var line: String?
                 while (reader.readLine().also { line = it } != null) {
                     val l = line ?: continue
-                    if (l.startsWith("[SLASH_COMMANDS]")) {
-                        val json = l.removePrefix("[SLASH_COMMANDS]")
-                        try {
-                            val arr = Json.parseToJsonElement(json).jsonArray
-                            for (elem in arr) {
-                                val pair = when {
-                                    elem is kotlinx.serialization.json.JsonObject -> {
-                                        val name = elem["name"]?.jsonPrimitive?.contentOrNull
-                                            ?: elem["command"]?.jsonPrimitive?.contentOrNull
-                                            ?: elem["id"]?.jsonPrimitive?.contentOrNull
-                                        val desc = elem["description"]?.jsonPrimitive?.contentOrNull ?: ""
-                                        if (name.isNullOrBlank()) null else name to desc
-                                    }
-                                    elem is kotlinx.serialization.json.JsonPrimitive -> {
-                                        val name = elem.contentOrNull
-                                        if (name.isNullOrBlank()) null else name to ""
-                                    }
-                                    else -> null
+                    if (!l.startsWith("[SLASH_COMMANDS]")) {
+                        if (l.isNotBlank()) log.debug("Bridge(getSlashCommands): $l")
+                        continue
+                    }
+                    val json = l.removePrefix("[SLASH_COMMANDS]")
+                    try {
+                        val arr = Json.parseToJsonElement(json).jsonArray
+                        for (elem in arr) {
+                            val pair = when {
+                                elem is kotlinx.serialization.json.JsonObject -> {
+                                    val name = elem["name"]?.jsonPrimitive?.contentOrNull
+                                        ?: elem["command"]?.jsonPrimitive?.contentOrNull
+                                        ?: elem["id"]?.jsonPrimitive?.contentOrNull
+                                    val desc = elem["description"]?.jsonPrimitive?.contentOrNull ?: ""
+                                    if (name.isNullOrBlank()) null else name to desc
                                 }
-                                if (pair != null) result.add(pair)
+                                elem is kotlinx.serialization.json.JsonPrimitive -> {
+                                    val name = elem.contentOrNull
+                                    if (name.isNullOrBlank()) null else name to ""
+                                }
+                                else -> null
                             }
-                        } catch (e: Exception) {
-                            log.warn("Failed to parse slash commands JSON: ${e.message}")
+                            if (pair != null) result.add(pair)
                         }
+                    } catch (e: Exception) {
+                        parseErrors++
+                        val snippet = json.take(300).replace('\n', ' ')
+                        log.warn("Failed to parse slash commands JSON: ${e.message}; raw=$snippet")
                     }
                 }
             }
 
-            process.waitFor()
-            mergeSlashCommands(result, localCommands)
+            val exited = process.waitFor(20, TimeUnit.SECONDS)
+            if (!exited) {
+                process.destroyForcibly()
+                log.warn("Slash commands bridge timed out after 20s (cwd=$cwd)")
+                return@withContext localCommands
+            }
+
+            val exitCode = process.exitValue()
+            if (exitCode != 0) {
+                log.warn("Slash commands bridge exited with code $exitCode")
+            }
+
+            val merged = mergeSlashCommands(result, localCommands)
+            log.info(
+                "Slash commands loaded: sdk=${result.size}, local=${localCommands.size}, " +
+                    "merged=${merged.size}, parseErrors=$parseErrors"
+            )
+            merged
         } catch (e: Exception) {
             log.warn("Failed to fetch slash commands: ${e.message}")
             localCommands
@@ -440,14 +475,14 @@ class ClaudeProvider : AiProvider {
             if (!root.exists() || !root.isDirectory) continue
 
             if (root.name == "skills") {
-                root.listFiles()
-                    ?.filter { it.isDirectory }
-                    ?.forEach { skillDir ->
+                root.walkTopDown()
+                    .onEnter { file -> file == root || file.name != ".git" }
+                    .forEach { file ->
+                        if (!file.isFile || !file.name.equals("SKILL.md", ignoreCase = true)) return@forEach
+                        val skillDir = file.parentFile ?: return@forEach
                         val skillName = skillDir.name.trim()
-                        if (skillName.isBlank()) return@forEach
-                        val skillMd = File(skillDir, "SKILL.md")
-                        if (!skillMd.isFile) return@forEach
-                        val desc = readMarkdownSummary(skillMd) ?: "Local skill"
+                        if (skillName.isBlank() || skillName.startsWith(".")) return@forEach
+                        val desc = readMarkdownSummary(file) ?: "Local skill"
                         put("/$skillName", desc)
                     }
             } else if (root.name == "commands") {

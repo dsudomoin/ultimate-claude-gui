@@ -67,4 +67,41 @@ class FilePathLinkHandlerTest {
         val resolved = FilePathLinkHandler.resolveAbsolutePath("src/main/File.kt", "/Users/user/project")
         assertEquals("/Users/user/project/src/main/File.kt", resolved)
     }
+
+    // ── parsePathAndLine tests ─────────────────────────────────────────────
+
+    @Test
+    fun `parsePathAndLine extracts line number`() {
+        val (path, line) = FilePathLinkHandler.parsePathAndLine("src/main/File.kt:42")
+        assertEquals("src/main/File.kt", path)
+        assertEquals(42, line)
+    }
+
+    @Test
+    fun `parsePathAndLine with no line number`() {
+        val (path, line) = FilePathLinkHandler.parsePathAndLine("src/main/File.kt")
+        assertEquals("src/main/File.kt", path)
+        assertNull(line)
+    }
+
+    @Test
+    fun `parsePathAndLine with bare filename and line`() {
+        val (path, line) = FilePathLinkHandler.parsePathAndLine("File.kt:10")
+        assertEquals("File.kt", path)
+        assertEquals(10, line)
+    }
+
+    @Test
+    fun `parsePathAndLine ignores colon without digits`() {
+        val (path, line) = FilePathLinkHandler.parsePathAndLine("File.kt:")
+        assertEquals("File.kt:", path)
+        assertNull(line)
+    }
+
+    @Test
+    fun `parsePathAndLine with absolute path and line`() {
+        val (path, line) = FilePathLinkHandler.parsePathAndLine("/Users/user/project/File.kt:100")
+        assertEquals("/Users/user/project/File.kt", path)
+        assertEquals(100, line)
+    }
 }

@@ -1,5 +1,6 @@
 package ru.dsudomoin.claudecodegui.service
 
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
@@ -27,7 +28,7 @@ import java.util.concurrent.TimeUnit
  * Handles automatic token refresh when expired.
  */
 @Service(Service.Level.APP)
-class OAuthCredentialService {
+class OAuthCredentialService : Disposable {
 
     private val log = Logger.getInstance(OAuthCredentialService::class.java)
 
@@ -105,13 +106,15 @@ class OAuthCredentialService {
     }
 
     fun getLoginInfo(): LoginInfo {
-        val creds = loadCredentials() ?: return LoginInfo(loggedIn = false, source = "none")
+        // Force re-read for UI status checks: CLI may refresh tokens outside this process.
+        val creds = loadCredentials(forceReload = true) ?: return LoginInfo(loggedIn = false, source = "none")
         val oauth = creds.claudeAiOauth
         val expired = oauth.expiresAt < System.currentTimeMillis()
         val source = if (isMacOS()) "macOS Keychain" else "~/.claude/.credentials.json"
         return LoginInfo(
             loggedIn = oauth.accessToken.isNotBlank(),
             expired = expired,
+            hasRefreshToken = oauth.refreshToken.isNotBlank(),
             source = source,
             scopes = oauth.scopes
         )
@@ -123,8 +126,11 @@ class OAuthCredentialService {
 
     // --- Credential Loading ---
 
-    private fun loadCredentials(): OAuthCredentials? {
-        cachedCredentials?.let { return it }
+    private fun loadCredentials(forceReload: Boolean = false): OAuthCredentials? {
+        val previousCached = cachedCredentials
+        if (!forceReload) {
+            previousCached?.let { return it }
+        }
 
         val creds = if (isMacOS()) {
             readFromKeychain() ?: readFromFile()
@@ -132,8 +138,13 @@ class OAuthCredentialService {
             readFromFile()
         }
 
-        cachedCredentials = creds
-        return creds
+        if (creds != null) {
+            cachedCredentials = creds
+            return creds
+        }
+
+        // Keep last known credentials on transient read failures.
+        return previousCached
     }
 
     private fun readFromKeychain(): OAuthCredentials? {
@@ -269,6 +280,13 @@ class OAuthCredentialService {
         }
     }
 
+    // --- Lifecycle ---
+
+    override fun dispose() {
+        httpClient.close()
+        cachedCredentials = null
+    }
+
     // --- Helpers ---
 
     private fun isMacOS(): Boolean = System.getProperty("os.name").lowercase().contains("mac")
@@ -311,6 +329,7 @@ data class TokenResponse(
 data class LoginInfo(
     val loggedIn: Boolean,
     val expired: Boolean = false,
+    val hasRefreshToken: Boolean = false,
     val source: String = "",
     val scopes: List<String> = emptyList()
 )
