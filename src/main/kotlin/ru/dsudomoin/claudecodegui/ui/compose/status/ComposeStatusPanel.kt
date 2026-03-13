@@ -36,7 +36,7 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import ru.dsudomoin.claudecodegui.ui.compose.theme.scaledSp
 import org.jetbrains.jewel.ui.component.Text
 import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
@@ -230,13 +230,13 @@ private fun StatusTab(
     ) {
         Text(
             text = icon,
-            style = TextStyle(fontSize = 12.sp),
+            style = TextStyle(fontSize = scaledSp(12)),
         )
         Spacer(Modifier.width(4.dp))
         Text(
             text = label,
             style = TextStyle(
-                fontSize = 11.sp,
+                fontSize = scaledSp(11),
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                 color = textColor,
             ),
@@ -268,7 +268,7 @@ private fun TodosTabStats(todos: List<TodoItem>) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = "$done/${todos.size}",
-            style = TextStyle(fontSize = 10.sp, color = colors.textSecondary),
+            style = TextStyle(fontSize = scaledSp(10), color = colors.textSecondary),
         )
         if (todos.any { it.status == TodoStatus.IN_PROGRESS }) {
             Spacer(Modifier.width(4.dp))
@@ -289,7 +289,7 @@ private fun FilesTabStats(fileChanges: List<FileChangeSummary>) {
             Text(
                 text = "+$totalAdd",
                 style = TextStyle(
-                    fontSize = 10.sp,
+                    fontSize = scaledSp(10),
                     fontWeight = FontWeight.Bold,
                     color = colors.diffAddFg,
                 ),
@@ -300,7 +300,7 @@ private fun FilesTabStats(fileChanges: List<FileChangeSummary>) {
             Text(
                 text = "-$totalDel",
                 style = TextStyle(
-                    fontSize = 10.sp,
+                    fontSize = scaledSp(10),
                     fontWeight = FontWeight.Bold,
                     color = colors.diffDelFg,
                 ),
@@ -318,7 +318,7 @@ private fun AgentsTabStats(agents: List<SubagentInfo>) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = "$done/${agents.size}",
-            style = TextStyle(fontSize = 10.sp, color = colors.textSecondary),
+            style = TextStyle(fontSize = scaledSp(10), color = colors.textSecondary),
         )
         if (agents.any { it.status == SubagentStatus.RUNNING }) {
             Spacer(Modifier.width(4.dp))
@@ -342,7 +342,7 @@ private fun EmptyMessage(text: String) {
     ) {
         Text(
             text = text,
-            style = TextStyle(fontSize = 11.sp, color = colors.textSecondary),
+            style = TextStyle(fontSize = scaledSp(11), color = colors.textSecondary),
         )
     }
 }

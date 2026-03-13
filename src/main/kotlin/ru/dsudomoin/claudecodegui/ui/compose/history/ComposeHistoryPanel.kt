@@ -37,7 +37,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import ru.dsudomoin.claudecodegui.ui.compose.theme.scaledSp
 import org.jetbrains.jewel.ui.component.Text
 import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.core.session.SessionInfo
@@ -85,7 +85,7 @@ fun ComposeHistoryPanel(
         ) {
             Text(
                 text = "\u2190 ${UcuBundle.message("history.back")}",
-                style = TextStyle(fontSize = 13.sp, color = colors.textPrimary),
+                style = TextStyle(fontSize = scaledSp(13), color = colors.textPrimary),
                 modifier = Modifier
                     .clickable(onClick = onBack)
                     .pointerHoverIcon(PointerIcon.Hand),
@@ -103,7 +103,7 @@ fun ComposeHistoryPanel(
             val totalMessages = sessions.sumOf { it.messageCount }
             Text(
                 text = UcuBundle.message("history.stats", sessions.size, totalMessages),
-                style = TextStyle(fontSize = 12.sp, color = colors.textSecondary),
+                style = TextStyle(fontSize = scaledSp(12), color = colors.textSecondary),
             )
 
             Spacer(Modifier.width(6.dp))
@@ -111,7 +111,7 @@ fun ComposeHistoryPanel(
             // Refresh
             Text(
                 text = "\u21BB",
-                style = TextStyle(fontSize = 14.sp, color = colors.textSecondary),
+                style = TextStyle(fontSize = scaledSp(14), color = colors.textSecondary),
                 modifier = Modifier
                     .clickable(onClick = onRefresh)
                     .pointerHoverIcon(PointerIcon.Hand)
@@ -125,7 +125,7 @@ fun ComposeHistoryPanel(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
                 singleLine = true,
-                textStyle = TextStyle(fontSize = 12.sp, color = colors.textPrimary),
+                textStyle = TextStyle(fontSize = scaledSp(12), color = colors.textPrimary),
                 decorationBox = { inner ->
                     Box(
                         contentAlignment = Alignment.CenterStart,
@@ -140,7 +140,7 @@ fun ComposeHistoryPanel(
                         if (searchQuery.isEmpty()) {
                             Text(
                                 text = UcuBundle.message("history.search"),
-                                style = TextStyle(fontSize = 12.sp, color = colors.textSecondary),
+                                style = TextStyle(fontSize = scaledSp(12), color = colors.textSecondary),
                             )
                         }
                         inner()
@@ -199,7 +199,7 @@ private fun SessionCard(
         Text(
             text = "\u2733",
             style = TextStyle(
-                fontSize = 16.sp,
+                fontSize = scaledSp(16),
                 fontWeight = FontWeight.Bold,
                 color = colors.historyAccent,
             ),
@@ -221,7 +221,7 @@ private fun SessionCard(
                 Text(
                     text = displayTitle,
                     style = TextStyle(
-                        fontSize = 13.sp,
+                        fontSize = scaledSp(13),
                         fontWeight = FontWeight.Bold,
                         color = colors.textPrimary,
                     ),
@@ -229,7 +229,7 @@ private fun SessionCard(
                 )
                 Text(
                     text = relativeTime(session.lastTimestamp),
-                    style = TextStyle(fontSize = 11.sp, color = colors.textSecondary),
+                    style = TextStyle(fontSize = scaledSp(11), color = colors.textSecondary),
                     modifier = Modifier.padding(start = 8.dp),
                 )
             }
@@ -243,12 +243,12 @@ private fun SessionCard(
             ) {
                 Text(
                     text = UcuBundle.message("history.messages", session.messageCount),
-                    style = TextStyle(fontSize = 11.sp, color = colors.textSecondary),
+                    style = TextStyle(fontSize = scaledSp(11), color = colors.textSecondary),
                 )
                 Text(
                     text = session.sessionId.take(8),
                     style = TextStyle(
-                        fontSize = 10.sp,
+                        fontSize = scaledSp(10),
                         fontFamily = FontFamily.Monospace,
                         color = colors.textSecondary,
                     ),

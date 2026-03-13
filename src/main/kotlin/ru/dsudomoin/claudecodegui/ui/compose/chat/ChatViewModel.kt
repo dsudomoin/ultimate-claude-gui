@@ -44,10 +44,6 @@ class ChatViewModel {
         IS_STREAMING,
         IS_SENDING,
         THINKING_COLLAPSED,
-        SCROLL_TRIGGER,
-        FORCE_SCROLL_TRIGGER,
-        VIEWPORT_RESTORE_TRIGGER,
-        VIEWPORT_FOCUS_LOST_TRIGGER,
         TAB_ACTIVATED,
         PANEL_VISIBILITY,
         TODOS,
@@ -297,50 +293,7 @@ class ChatViewModel {
         }
     }
 
-    // ── Scroll ───────────────────────────────────────────────────────────────
-
-    /** Incremented to trigger scroll-to-bottom in the LazyColumn. */
-    var scrollToBottomTrigger: Int = 0
-        private set
-
-    fun requestScrollToBottom() {
-        scrollToBottomTrigger++
-        notifyField(Field.SCROLL_TRIGGER)
-    }
-
-    /** Explicit, one-shot bottom snap (used for session load/restore). */
-    var forceScrollToBottomTrigger: Int = 0
-        private set
-
-    fun requestForceScrollToBottom() {
-        forceScrollToBottomTrigger++
-        notifyField(Field.FORCE_SCROLL_TRIGGER)
-    }
-
-    /**
-     * Explicit viewport restore trigger (used when plugin regains focus and
-     * the Compose scroll container may have clamped/reset offset).
-     */
-    var viewportRestoreTrigger: Int = 0
-        private set
-
-    fun requestViewportRestore() {
-        viewportRestoreTrigger++
-        notifyField(Field.VIEWPORT_RESTORE_TRIGGER)
-    }
-
-    /**
-     * Triggered when focus leaves chat panel (editor/toolwindow swap).
-     * Compose uses this moment to snapshot a stable viewport anchor before
-     * any transient focus/layout clamps can overwrite persisted state.
-     */
-    var viewportFocusLostTrigger: Int = 0
-        private set
-
-    fun requestViewportFocusLost() {
-        viewportFocusLostTrigger++
-        notifyField(Field.VIEWPORT_FOCUS_LOST_TRIGGER)
-    }
+    // ── Scroll / Tab Lifecycle ──────────────────────────────────────────────
 
     /**
      * Triggered when the tab containing this chat becomes the selected tab.
@@ -365,12 +318,6 @@ class ChatViewModel {
         notifyField(Field.PANEL_VISIBILITY)
     }
 
-    /**
-     * Last known chat viewport position.
-     * Not observable — consumed directly by Compose scroll logic.
-     */
-    var persistedScrollValue: Int = 0
-    var persistedScrollMaxValue: Int = 0
 }
 
 /** Display data for a queued message (decoupled from ChatPanel.QueuedMessage). */

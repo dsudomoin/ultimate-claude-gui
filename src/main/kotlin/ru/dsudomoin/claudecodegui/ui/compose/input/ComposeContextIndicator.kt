@@ -31,7 +31,7 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import ru.dsudomoin.claudecodegui.ui.compose.theme.scaledSp
 import androidx.compose.ui.window.Popup
 import org.jetbrains.jewel.ui.component.Text
 import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
@@ -114,7 +114,7 @@ fun ComposeContextIndicator(
             Text(
                 text = "$pct%",
                 style = TextStyle(
-                    fontSize = 11.sp,
+                    fontSize = scaledSp(11),
                     color = textColor,
                 ),
             )
@@ -134,7 +134,7 @@ fun ComposeContextIndicator(
                 ) {
                     Text(
                         text = usage.tooltipText,
-                        style = TextStyle(fontSize = 11.sp, color = colors.textPrimary),
+                        style = TextStyle(fontSize = scaledSp(11), color = colors.textPrimary),
                     )
                 }
             }

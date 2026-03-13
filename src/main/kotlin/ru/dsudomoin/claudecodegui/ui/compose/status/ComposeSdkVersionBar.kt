@@ -23,7 +23,7 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import ru.dsudomoin.claudecodegui.ui.compose.theme.scaledSp
 import org.jetbrains.jewel.ui.component.Text
 import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
@@ -116,7 +116,7 @@ fun ComposeSdkVersionBar(
 
         Text(
             text = parts.joinToString(" · "),
-            style = TextStyle(fontSize = 11.sp, color = colors.textSecondary),
+            style = TextStyle(fontSize = scaledSp(11), color = colors.textSecondary),
             maxLines = 1,
         )
 
@@ -124,7 +124,7 @@ fun ComposeSdkVersionBar(
         if (totalInputTokens > 0 || totalOutputTokens > 0) {
             Text(
                 text = " · ${UcuBundle.message("sdk.usage", formatTokenCount(totalInputTokens), formatTokenCount(totalOutputTokens))}",
-                style = TextStyle(fontSize = 11.sp, color = colors.textSecondary),
+                style = TextStyle(fontSize = scaledSp(11), color = colors.textSecondary),
                 maxLines = 1,
             )
         }
@@ -140,7 +140,7 @@ fun ComposeSdkVersionBar(
                 Text(
                     text = UcuBundle.message("sdk.updating"),
                     style = TextStyle(
-                        fontSize = 11.sp,
+                        fontSize = scaledSp(11),
                         color = colors.textSecondary,
                     ),
                 )
@@ -150,7 +150,7 @@ fun ComposeSdkVersionBar(
                 Text(
                     text = UcuBundle.message("sdk.updateError"),
                     style = TextStyle(
-                        fontSize = 11.sp,
+                        fontSize = scaledSp(11),
                         color = colors.statusError,
                     ),
                 )
@@ -163,7 +163,7 @@ fun ComposeSdkVersionBar(
                 Text(
                     text = UcuBundle.message("sdk.updateAvailable", latestVersion),
                     style = TextStyle(
-                        fontSize = 11.sp,
+                        fontSize = scaledSp(11),
                         fontWeight = FontWeight.SemiBold,
                         color = if (isHovered) colors.accentSecondary.copy(alpha = 0.8f)
                                 else colors.accentSecondary,

@@ -17,6 +17,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -52,7 +53,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import ru.dsudomoin.claudecodegui.ui.compose.theme.scaledSp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.window.Popup
 import org.jetbrains.jewel.ui.component.Text
@@ -161,7 +162,7 @@ fun ComposeToolUseBlock(
             if (hasExpandable) {
                 Text(
                     text = if (expanded) "\u25BC" else "\u25B6",
-                    style = TextStyle(fontSize = 10.sp, color = colors.textSecondary),
+                    style = TextStyle(fontSize = scaledSp(10), color = colors.textSecondary),
                 )
                 Spacer(Modifier.width(6.dp))
             }
@@ -169,14 +170,14 @@ fun ComposeToolUseBlock(
             // Tool icon (Unicode)
             Text(
                 text = getToolEmoji(data.toolName),
-                style = TextStyle(fontSize = 13.sp),
+                style = TextStyle(fontSize = scaledSp(13)),
             )
             Spacer(Modifier.width(6.dp))
 
             // Tool display name
             Text(
                 text = data.displayName,
-                style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Medium, color = colors.textPrimary),
+                style = TextStyle(fontSize = scaledSp(13), fontWeight = FontWeight.Medium, color = colors.textPrimary),
             )
             Spacer(Modifier.width(8.dp))
 
@@ -196,7 +197,7 @@ fun ComposeToolUseBlock(
                 Text(
                     text = data.summary,
                     style = TextStyle(
-                        fontSize = 13.sp,
+                        fontSize = scaledSp(13),
                         color = if (isClickableFile || isClickableUrl) colors.accent else colors.textSecondary,
                         textDecoration = if ((isClickableFile || isClickableUrl) && summaryHovered)
                             androidx.compose.ui.text.style.TextDecoration.Underline else null,
@@ -227,14 +228,14 @@ fun ComposeToolUseBlock(
             if (data.diffAdditions > 0) {
                 Text(
                     text = "+${data.diffAdditions}",
-                    style = TextStyle(fontSize = 11.sp, color = colors.diffAddFg),
+                    style = TextStyle(fontSize = scaledSp(11), color = colors.diffAddFg),
                 )
                 Spacer(Modifier.width(4.dp))
             }
             if (data.diffDeletions > 0) {
                 Text(
                     text = "-${data.diffDeletions}",
-                    style = TextStyle(fontSize = 11.sp, color = colors.diffDelFg),
+                    style = TextStyle(fontSize = scaledSp(11), color = colors.diffDelFg),
                 )
                 Spacer(Modifier.width(4.dp))
             }
@@ -322,7 +323,7 @@ fun ComposeToolUseBlock(
                         Text(
                             text = content.text.take(2000),
                             style = TextStyle(
-                                fontSize = 12.sp,
+                                fontSize = scaledSp(12),
                                 fontFamily = FontFamily.Monospace,
                                 color = colors.textPrimary,
                             ),
@@ -333,15 +334,17 @@ fun ComposeToolUseBlock(
                         )
                     }
                     is ExpandableContent.Markdown -> {
-                        val mdScrollState = rememberScrollState()
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 400.dp)
-                                .verticalScroll(mdScrollState)
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                        ru.dsudomoin.claudecodegui.ui.compose.common.ExpandableBox(
+                            maxCollapsedHeight = 400.dp,
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
-                            ComposeMarkdownContent(markdown = content.text)
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                            ) {
+                                ComposeMarkdownContent(markdown = content.text)
+                            }
                         }
                     }
                     null -> {}
@@ -362,7 +365,12 @@ fun ToolStatusBadge(
         ToolStatus.COMPLETED -> "Done" to colors.statusSuccess
         ToolStatus.ERROR -> "Error" to colors.statusError
     }
-    val fontSize = 10.sp
+    val icon = when (status) {
+        ToolStatus.COMPLETED -> "\u2713"
+        ToolStatus.ERROR -> "\u2715"
+        ToolStatus.PENDING -> null // animated below
+    }
+    val fontSize = scaledSp(10)
     val badgeWidth = 64.dp
     val badgeHeight = 20.dp
 
@@ -375,15 +383,55 @@ fun ToolStatusBadge(
             .background(color.copy(alpha = 0.14f))
             .border(1.dp, color.copy(alpha = 0.4f), RoundedCornerShape(999.dp))
     ) {
-        Text(
-            text = label,
-            style = TextStyle(
-                fontSize = fontSize,
-                color = color,
-                fontWeight = FontWeight.SemiBold,
-            ),
-            maxLines = 1,
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            if (status == ToolStatus.PENDING) {
+                PulsingStatusIcon(color = color)
+                Spacer(Modifier.width(3.dp))
+            } else if (icon != null) {
+                Text(
+                    text = icon,
+                    style = TextStyle(
+                        fontSize = scaledSp(9),
+                        color = color,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                )
+                Spacer(Modifier.width(3.dp))
+            }
+            Text(
+                text = label,
+                style = TextStyle(
+                    fontSize = fontSize,
+                    color = color,
+                    fontWeight = FontWeight.SemiBold,
+                ),
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PulsingStatusIcon(
+    color: androidx.compose.ui.graphics.Color,
+) {
+    val transition = rememberInfiniteTransition(label = "status-pulse")
+    val alpha by transition.animateFloat(
+        initialValue = 1f,
+        targetValue = 0.3f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "status-pulse-alpha",
+    )
+    Canvas(
+        modifier = Modifier.size(6.dp).alpha(alpha),
+    ) {
+        drawCircle(color = color)
     }
 }
 
@@ -460,7 +508,7 @@ internal fun DiffContentPanel(oldString: String, newString: String, filePath: St
                 Text(
                     text = marker,
                     style = TextStyle(
-                        fontSize = 12.sp,
+                        fontSize = scaledSp(12),
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                         color = markerColor,
@@ -471,7 +519,7 @@ internal fun DiffContentPanel(oldString: String, newString: String, filePath: St
                     Text(
                         text = highlightedText,
                         style = TextStyle(
-                            fontSize = 12.sp,
+                            fontSize = scaledSp(12),
                             fontFamily = FontFamily.Monospace,
                         ),
                         softWrap = false,
@@ -480,7 +528,7 @@ internal fun DiffContentPanel(oldString: String, newString: String, filePath: St
                     Text(
                         text = line.content,
                         style = TextStyle(
-                            fontSize = 12.sp,
+                            fontSize = scaledSp(12),
                             fontFamily = FontFamily.Monospace,
                             color = colors.textPrimary,
                         ),
@@ -493,7 +541,7 @@ internal fun DiffContentPanel(oldString: String, newString: String, filePath: St
         if (diffLines.size > maxLines) {
             Text(
                 text = "... ${diffLines.size - maxLines} more lines",
-                style = TextStyle(fontSize = 11.sp, color = colors.textSecondary),
+                style = TextStyle(fontSize = scaledSp(11), color = colors.textSecondary),
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp),
             )
         }
@@ -550,7 +598,7 @@ internal fun CodeContentPanel(code: String, filePath: String? = null) {
                 Text(
                     text = lineNum,
                     style = TextStyle(
-                        fontSize = 12.sp,
+                        fontSize = scaledSp(12),
                         fontFamily = FontFamily.Monospace,
                         color = colors.textSecondary.copy(alpha = 0.5f),
                     ),
@@ -561,7 +609,7 @@ internal fun CodeContentPanel(code: String, filePath: String? = null) {
                     Text(
                         text = highlightedText,
                         style = TextStyle(
-                            fontSize = 12.sp,
+                            fontSize = scaledSp(12),
                             fontFamily = FontFamily.Monospace,
                         ),
                         softWrap = false,
@@ -570,7 +618,7 @@ internal fun CodeContentPanel(code: String, filePath: String? = null) {
                     Text(
                         text = line,
                         style = TextStyle(
-                            fontSize = 12.sp,
+                            fontSize = scaledSp(12),
                             fontFamily = FontFamily.Monospace,
                             color = colors.textPrimary,
                         ),
@@ -583,7 +631,7 @@ internal fun CodeContentPanel(code: String, filePath: String? = null) {
         if (lines.size > maxLines) {
             Text(
                 text = "... ${lines.size - maxLines} more lines",
-                style = TextStyle(fontSize = 11.sp, color = colors.textSecondary),
+                style = TextStyle(fontSize = scaledSp(11), color = colors.textSecondary),
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp),
             )
         }
@@ -737,7 +785,7 @@ fun ToolActionButton(
     ) {
         Text(
             text = tooltip ?: icon,
-            style = TextStyle(fontSize = 10.sp, color = if (isHovered) colors.accent else colors.textSecondary),
+            style = TextStyle(fontSize = scaledSp(10), color = if (isHovered) colors.accent else colors.textSecondary),
             maxLines = 1,
         )
     }
@@ -788,7 +836,7 @@ fun RevertConfirmPopup(
         ) {
             Text(
                 text = UcuBundle.message("tool.revert.confirm"),
-                style = TextStyle(fontSize = 12.sp, color = colors.textPrimary),
+                style = TextStyle(fontSize = scaledSp(12), color = colors.textPrimary),
                 maxLines = 1,
             )
             // Cancel button
@@ -807,7 +855,7 @@ fun RevertConfirmPopup(
             ) {
                 Text(
                     text = UcuBundle.message("tool.revert.no"),
-                    style = TextStyle(fontSize = 11.sp, color = colors.textSecondary),
+                    style = TextStyle(fontSize = scaledSp(11), color = colors.textSecondary),
                 )
             }
             // Revert (destructive) button
@@ -825,7 +873,7 @@ fun RevertConfirmPopup(
             ) {
                 Text(
                     text = UcuBundle.message("tool.revert.yes"),
-                    style = TextStyle(fontSize = 11.sp, color = androidx.compose.ui.graphics.Color.White, fontWeight = FontWeight.Medium),
+                    style = TextStyle(fontSize = scaledSp(11), color = androidx.compose.ui.graphics.Color.White, fontWeight = FontWeight.Medium),
                 )
             }
         }

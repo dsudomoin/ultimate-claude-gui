@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
@@ -22,8 +23,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import ru.dsudomoin.claudecodegui.ui.compose.theme.scaledSp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import org.jetbrains.jewel.ui.component.Text
 import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.core.model.ContentBlock
@@ -170,26 +173,28 @@ private fun UserBubble(
                             if (onUrlClick != null) {
                                 LinkifiedText(
                                     text = block.text,
-                                    style = TextStyle(fontSize = 13.sp, color = fgColor),
+                                    style = TextStyle(fontSize = scaledSp(13), color = fgColor),
                                     linkColor = colors.accent,
                                     onUrlClick = onUrlClick,
                                 )
                             } else {
                                 Text(
                                     text = block.text,
-                                    style = TextStyle(fontSize = 13.sp, color = fgColor),
+                                    style = TextStyle(fontSize = scaledSp(13), color = fgColor),
                                 )
                             }
                         }
                         is ContentBlock.Image -> {
-                            val bitmap = remember(block.source) {
-                                try {
-                                    ImageIO.read(java.io.File(block.source))?.toComposeImageBitmap()
-                                } catch (_: Exception) { null }
+                            val bitmap by produceState<ImageBitmap?>(null, block.source) {
+                                value = withContext(Dispatchers.IO) {
+                                    try {
+                                        ImageIO.read(java.io.File(block.source))?.toComposeImageBitmap()
+                                    } catch (_: Exception) { null }
+                                }
                             }
                             if (bitmap != null) {
                                 Image(
-                                    bitmap = bitmap,
+                                    bitmap = bitmap!!,
                                     contentDescription = block.source.substringAfterLast('/'),
                                     contentScale = ContentScale.Fit,
                                     modifier = Modifier
@@ -200,7 +205,7 @@ private fun UserBubble(
                             } else {
                                 Text(
                                     text = "\uD83D\uDDBC ${block.source.substringAfterLast('/')}",
-                                    style = TextStyle(fontSize = 12.sp, color = fgColor.copy(alpha = 0.7f)),
+                                    style = TextStyle(fontSize = scaledSp(12), color = fgColor.copy(alpha = 0.7f)),
                                 )
                             }
                         }
@@ -396,14 +401,16 @@ private fun FinishedAssistantContent(
                 }
             }
             is FinishedRenderItem.ImageItem -> {
-                val bitmap = remember(item.source) {
-                    try {
-                        ImageIO.read(java.io.File(item.source))?.toComposeImageBitmap()
-                    } catch (_: Exception) { null }
+                val bitmap by produceState<ImageBitmap?>(null, item.source) {
+                    value = withContext(Dispatchers.IO) {
+                        try {
+                            ImageIO.read(java.io.File(item.source))?.toComposeImageBitmap()
+                        } catch (_: Exception) { null }
+                    }
                 }
                 if (bitmap != null) {
                     Image(
-                        bitmap = bitmap,
+                        bitmap = bitmap!!,
                         contentDescription = item.source.substringAfterLast('/'),
                         contentScale = ContentScale.Fit,
                         modifier = Modifier
@@ -414,7 +421,7 @@ private fun FinishedAssistantContent(
                 } else {
                     Text(
                         text = "\uD83D\uDDBC ${item.source.substringAfterLast('/')}",
-                        style = TextStyle(fontSize = 12.sp, color = colors.textSecondary),
+                        style = TextStyle(fontSize = scaledSp(12), color = colors.textSecondary),
                     )
                 }
             }
@@ -473,17 +480,17 @@ private fun StreamingTimerRow() {
         // Spinner indicator (simple text-based)
         Text(
             text = "\u23F3",
-            style = TextStyle(fontSize = 11.sp),
+            style = TextStyle(fontSize = scaledSp(11)),
         )
         Spacer(Modifier.padding(start = 4.dp))
         Text(
             text = UcuBundle.message("streaming.generating"),
-            style = TextStyle(fontSize = 11.sp, color = Color.Gray),
+            style = TextStyle(fontSize = scaledSp(11), color = Color.Gray),
         )
         Spacer(Modifier.padding(start = 4.dp))
         Text(
             text = timeText,
-            style = TextStyle(fontSize = 11.sp, color = Color.Gray),
+            style = TextStyle(fontSize = scaledSp(11), color = Color.Gray),
         )
     }
 }
@@ -533,13 +540,13 @@ private fun CompactBoundaryBlock(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = "\u2702",
-                        style = TextStyle(fontSize = 11.sp, color = colors.accentSecondary),
+                        style = TextStyle(fontSize = scaledSp(11), color = colors.accentSecondary),
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
                         text = UcuBundle.message("system.compactBoundary.title"),
                         style = TextStyle(
-                            fontSize = 10.sp,
+                            fontSize = scaledSp(10),
                             color = colors.textSecondary,
                             fontWeight = FontWeight.SemiBold,
                         ),
@@ -582,7 +589,7 @@ private fun CompactBoundaryBlock(
             Text(
                 text = triggerLabel.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() },
                 style = TextStyle(
-                    fontSize = 11.sp,
+                    fontSize = scaledSp(11),
                     color = colors.textPrimary,
                     fontWeight = FontWeight.SemiBold,
                 ),
@@ -591,7 +598,7 @@ private fun CompactBoundaryBlock(
             Text(
                 text = tokenLabel,
                 style = TextStyle(
-                    fontSize = 11.sp,
+                    fontSize = scaledSp(11),
                     color = colors.textSecondary,
                 ),
             )
@@ -642,7 +649,7 @@ private fun CodeBlock(
             Text(
                 text = language,
                 style = TextStyle(
-                    fontSize = 10.sp,
+                    fontSize = scaledSp(10),
                     fontStyle = FontStyle.Italic,
                     color = colors.textSecondary,
                 ),
@@ -652,7 +659,7 @@ private fun CodeBlock(
         Text(
             text = code,
             style = TextStyle(
-                fontSize = 12.sp,
+                fontSize = scaledSp(12),
                 fontFamily = FontFamily.Monospace,
                 color = colors.textPrimary,
             ),

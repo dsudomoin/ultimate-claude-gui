@@ -32,7 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import ru.dsudomoin.claudecodegui.ui.compose.theme.scaledSp
 import org.jetbrains.jewel.ui.component.Text
 import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
@@ -153,7 +153,7 @@ private fun BatchActionButton(
         Text(
             text = text,
             style = TextStyle(
-                fontSize = 11.sp,
+                fontSize = scaledSp(11),
                 color = textColor,
             ),
         )
@@ -194,7 +194,7 @@ private fun FileRow(
         Text(
             text = file.fileName,
             style = TextStyle(
-                fontSize = 12.sp,
+                fontSize = scaledSp(12),
                 color = colors.textPrimary,
                 textDecoration = if (isHovered) TextDecoration.Underline else TextDecoration.None,
             ),
@@ -211,7 +211,7 @@ private fun FileRow(
             Text(
                 text = "+${file.additions}",
                 style = TextStyle(
-                    fontSize = 10.sp,
+                    fontSize = scaledSp(10),
                     fontWeight = FontWeight.Bold,
                     color = colors.diffAddFg,
                 ),
@@ -222,7 +222,7 @@ private fun FileRow(
             Text(
                 text = "-${file.deletions}",
                 style = TextStyle(
-                    fontSize = 10.sp,
+                    fontSize = scaledSp(10),
                     fontWeight = FontWeight.Bold,
                     color = colors.diffDelFg,
                 ),
@@ -258,7 +258,7 @@ private fun FileChangeBadge(changeType: FileChangeType) {
         Text(
             text = badgeText,
             style = TextStyle(
-                fontSize = 10.sp,
+                fontSize = scaledSp(10),
                 fontWeight = FontWeight.Bold,
                 color = badgeColor,
             ),
@@ -288,7 +288,7 @@ private fun IconActionButton(
     ) {
         Text(
             text = label,
-            style = TextStyle(fontSize = 12.sp),
+            style = TextStyle(fontSize = scaledSp(12)),
         )
     }
 }

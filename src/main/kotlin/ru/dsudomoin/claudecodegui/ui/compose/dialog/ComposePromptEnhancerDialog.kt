@@ -35,7 +35,7 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import ru.dsudomoin.claudecodegui.ui.compose.theme.scaledSp
 import org.jetbrains.jewel.foundation.ExperimentalJewelApi
 import org.jetbrains.jewel.ui.component.Text
 import ru.dsudomoin.claudecodegui.UcuBundle
@@ -95,13 +95,13 @@ fun ComposePromptEnhancerDialog(
             ) {
                 Text(
                     text = "\u26A1",
-                    style = TextStyle(fontSize = 16.sp),
+                    style = TextStyle(fontSize = scaledSp(16)),
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = UcuBundle.message("enhancer.title"),
                     style = TextStyle(
-                        fontSize = 15.sp,
+                        fontSize = scaledSp(15),
                         fontWeight = FontWeight.SemiBold,
                         color = colors.textPrimary,
                     ),
@@ -139,7 +139,7 @@ fun ComposePromptEnhancerDialog(
                 Text(
                     text = UcuBundle.message("enhancer.enhanced"),
                     style = TextStyle(
-                        fontSize = 12.sp,
+                        fontSize = scaledSp(12),
                         fontWeight = FontWeight.SemiBold,
                         color = colors.textSecondary,
                     ),
@@ -160,7 +160,7 @@ fun ComposePromptEnhancerDialog(
                             Text(
                                 text = UcuBundle.message("enhancer.enhancing"),
                                 style = TextStyle(
-                                    fontSize = 13.sp,
+                                    fontSize = scaledSp(13),
                                     color = colors.textSecondary,
                                 ),
                             )
@@ -170,7 +170,7 @@ fun ComposePromptEnhancerDialog(
                         Text(
                             text = error,
                             style = TextStyle(
-                                fontSize = 13.sp,
+                                fontSize = scaledSp(13),
                                 color = colors.statusError,
                             ),
                         )
@@ -188,7 +188,7 @@ fun ComposePromptEnhancerDialog(
                             Text(
                                 text = enhancedText,
                                 style = TextStyle(
-                                    fontSize = 13.sp,
+                                    fontSize = scaledSp(13),
                                     color = colors.textPrimary,
                                 ),
                             )
@@ -257,7 +257,7 @@ private fun PromptSection(
         Text(
             text = label,
             style = TextStyle(
-                fontSize = 12.sp,
+                fontSize = scaledSp(12),
                 fontWeight = FontWeight.SemiBold,
                 color = colors.textSecondary,
             ),
@@ -275,7 +275,7 @@ private fun PromptSection(
             Text(
                 text = text,
                 style = TextStyle(
-                    fontSize = 13.sp,
+                    fontSize = scaledSp(13),
                     color = colors.textPrimary,
                 ),
             )
@@ -321,7 +321,7 @@ private fun EnhancerButton(
         Text(
             text = text,
             style = TextStyle(
-                fontSize = 13.sp,
+                fontSize = scaledSp(13),
                 fontWeight = FontWeight.Bold,
                 color = textColor.copy(alpha = alpha),
             ),

@@ -35,7 +35,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import ru.dsudomoin.claudecodegui.ui.compose.theme.scaledSp
 import org.jetbrains.jewel.ui.component.Text
 import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
@@ -103,7 +103,7 @@ private fun TodoRow(
         Text(
             text = item.content,
             style = TextStyle(
-                fontSize = 12.sp,
+                fontSize = scaledSp(12),
                 color = textColor,
                 textDecoration = decoration,
             ),
@@ -145,7 +145,7 @@ private fun TodoStatusIcon(status: TodoStatus) {
             Text(
                 text = "\u2713",
                 style = TextStyle(
-                    fontSize = 12.sp,
+                    fontSize = scaledSp(12),
                     color = colors.statusSuccess,
                 ),
             )

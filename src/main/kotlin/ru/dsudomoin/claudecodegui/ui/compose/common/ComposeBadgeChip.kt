@@ -16,7 +16,7 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import ru.dsudomoin.claudecodegui.ui.compose.theme.scaledSp
 import org.jetbrains.jewel.ui.component.Text
 
 /**
@@ -52,7 +52,7 @@ fun ComposeBadgeChip(
     ) {
         Text(
             text = text,
-            style = TextStyle(fontSize = 11.sp, color = textColor),
+            style = TextStyle(fontSize = scaledSp(11), color = textColor),
         )
     }
 }

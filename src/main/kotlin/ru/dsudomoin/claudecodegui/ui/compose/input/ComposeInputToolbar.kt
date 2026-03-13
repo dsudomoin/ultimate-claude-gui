@@ -38,7 +38,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import ru.dsudomoin.claudecodegui.ui.compose.theme.scaledSp
 import androidx.compose.ui.window.Popup
 import org.jetbrains.jewel.ui.component.Text
 import ru.dsudomoin.claudecodegui.UcuBundle
@@ -309,7 +309,7 @@ private fun SelectionOptionRow(
         // Icon
         Text(
             text = icon,
-            style = TextStyle(fontSize = 18.sp),
+            style = TextStyle(fontSize = scaledSp(18)),
         )
 
         Spacer(Modifier.width(12.dp))
@@ -319,7 +319,7 @@ private fun SelectionOptionRow(
             Text(
                 text = name,
                 style = TextStyle(
-                    fontSize = 13.sp,
+                    fontSize = scaledSp(13),
                     fontWeight = FontWeight.SemiBold,
                     color = colors.textPrimary,
                 ),
@@ -327,7 +327,7 @@ private fun SelectionOptionRow(
             Text(
                 text = description,
                 style = TextStyle(
-                    fontSize = 11.sp,
+                    fontSize = scaledSp(11),
                     color = colors.textSecondary,
                 ),
             )
@@ -339,7 +339,7 @@ private fun SelectionOptionRow(
             Text(
                 text = "\u2713",
                 style = TextStyle(
-                    fontSize = 16.sp,
+                    fontSize = scaledSp(16),
                     fontWeight = FontWeight.Bold,
                     color = colors.statusSuccess,
                 ),
@@ -441,13 +441,13 @@ private fun SettingsToggleRow(
     ) {
         Text(
             text = icon,
-            style = TextStyle(fontSize = 14.sp),
+            style = TextStyle(fontSize = scaledSp(14)),
         )
         Spacer(Modifier.width(10.dp))
         Text(
             text = label,
             style = TextStyle(
-                fontSize = 13.sp,
+                fontSize = scaledSp(13),
                 color = colors.textPrimary,
             ),
             modifier = Modifier.weight(1f),
@@ -481,13 +481,13 @@ private fun SettingsCycleRow(
     ) {
         Text(
             text = icon,
-            style = TextStyle(fontSize = 14.sp),
+            style = TextStyle(fontSize = scaledSp(14)),
         )
         Spacer(Modifier.width(10.dp))
         Text(
             text = label,
             style = TextStyle(
-                fontSize = 13.sp,
+                fontSize = scaledSp(13),
                 color = colors.textPrimary,
             ),
             modifier = Modifier.weight(1f),
@@ -496,7 +496,7 @@ private fun SettingsCycleRow(
         Text(
             text = value,
             style = TextStyle(
-                fontSize = 12.sp,
+                fontSize = scaledSp(12),
                 fontWeight = FontWeight.Medium,
                 color = colors.accent,
             ),
@@ -559,7 +559,7 @@ fun ToolbarIconButton(
         ) {
             Text(
                 text = icon,
-                style = TextStyle(fontSize = 14.sp),
+                style = TextStyle(fontSize = scaledSp(14)),
             )
         }
         if (isHovered && tooltip != null) {
@@ -575,7 +575,7 @@ fun ToolbarIconButton(
                 ) {
                     Text(
                         text = tooltip,
-                        style = TextStyle(fontSize = 11.sp, color = colors.textPrimary),
+                        style = TextStyle(fontSize = scaledSp(11), color = colors.textPrimary),
                     )
                 }
             }
@@ -610,7 +610,7 @@ fun SelectorButton(
         Text(
             text = text,
             style = TextStyle(
-                fontSize = 11.sp,
+                fontSize = scaledSp(11),
                 color = contentColor,
             ),
         )
@@ -676,7 +676,7 @@ fun SendStopButton(
         Text(
             text = if (isSending) "\u23F9" else "\u25B6",
             style = TextStyle(
-                fontSize = 12.sp,
+                fontSize = scaledSp(12),
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
             ),

@@ -49,7 +49,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import ru.dsudomoin.claudecodegui.ui.compose.theme.scaledSp
 import org.jetbrains.jewel.ui.component.Text
 import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.command.SlashCommand
@@ -314,7 +314,7 @@ fun ComposeChatInputPanel(
                     }
                 },
                 textStyle = TextStyle(
-                    fontSize = 14.sp,
+                    fontSize = scaledSp(14),
                     color = colors.textPrimary,
                 ),
                 cursorBrush = SolidColor(colors.textPrimary),
@@ -451,7 +451,7 @@ fun ComposeChatInputPanel(
                         Text(
                             text = UcuBundle.message("chat.placeholder"),
                             style = TextStyle(
-                                fontSize = 14.sp,
+                                fontSize = scaledSp(14),
                                 color = colors.textSecondary,
                             ),
                         )
@@ -502,7 +502,7 @@ private fun PromptSuggestionChip(
         Text(
             text = text,
             style = TextStyle(
-                fontSize = 11.sp,
+                fontSize = scaledSp(11),
                 color = colors.textSecondary,
             ),
             maxLines = 1,

@@ -1,11 +1,16 @@
+@file:OptIn(ExperimentalFoundationApi::class)
+
 package ru.dsudomoin.claudecodegui.ui.compose.chat
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import org.jetbrains.jewel.ui.component.VerticallyScrollableContainer
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.ScrollState
-import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.BringIntoViewSpec
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -15,18 +20,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollbarAdapter
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.text.selection.DisableSelection
+import org.jetbrains.jewel.foundation.ExperimentalJewelApi
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -41,7 +44,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import ru.dsudomoin.claudecodegui.ui.compose.theme.scaledSp
 import org.jetbrains.jewel.ui.component.Text
 import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.bridge.AuthState
@@ -49,6 +52,8 @@ import ru.dsudomoin.claudecodegui.bridge.NodeState
 import ru.dsudomoin.claudecodegui.bridge.SetupStatus
 import ru.dsudomoin.claudecodegui.core.model.Message
 import ru.dsudomoin.claudecodegui.core.model.Role
+import ru.dsudomoin.claudecodegui.core.model.Role.USER
+import ru.dsudomoin.claudecodegui.core.model.Role.ASSISTANT
 import ru.dsudomoin.claudecodegui.ui.compose.status.ComposeSdkVersionBar
 import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
 import java.awt.Toolkit
@@ -60,6 +65,11 @@ import java.util.Date
  * Main message list composable.
  *
  * Compose equivalent of [ru.dsudomoin.claudecodegui.ui.chat.MessageListPanel].
+ *
+ * Uses Column + verticalScroll (NOT LazyColumn) to avoid lazy composition/
+ * decomposition jank during fast scrolling. All message items are composed once
+ * and stay composed. This matches JetBrains' own agents chat implementation.
+ * Auto-scroll to bottom is handled by the caller via [scrollState].
  */
 @Composable
 fun ComposeMessageList(
@@ -150,56 +160,58 @@ fun ComposeMessageList(
         return
     }
 
-    // focusProperties { canFocus = false } prevents Compose's focus system from routing
-    // focus into the scroll container.  Without this, focus entering the ComposePanel
-    // (editor→plugin, tab switch, Alt-Tab) causes Compose to "bring focused element into
-    // view" inside the scrollable Column — corrupting ScrollState.value and producing
-    // visible scroll jumps.  Mouse-based text selection (drag, double-click) still works
-    // because it's driven by pointerInput, not by focus.
-    Box(modifier = modifier.fillMaxSize().focusProperties { canFocus = false }) {
-        SelectionContainer {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(scrollState)
-                    .padding(start = 8.dp, end = 14.dp, top = 6.dp, bottom = 6.dp),
-            ) {
-                messages.forEachIndexed { index, message ->
-                    val prevRole = if (index > 0) messages[index - 1].role else null
+    // NoScrollBringIntoViewSpec prevents Compose's BringIntoView from scrolling
+    // when focus changes (window Alt-Tab, editor→plugin switch, tab switch).
+    // Without this, regaining window focus corrupts scroll position.
+    // focusProperties { canFocus = false } is kept as a belt-and-suspenders guard.
+    @OptIn(ExperimentalJewelApi::class)
+    CompositionLocalProvider(LocalBringIntoViewSpec provides NoScrollBringIntoViewSpec) {
+        VerticallyScrollableContainer(
+            scrollState = scrollState,
+            modifier = modifier.fillMaxSize().focusProperties { canFocus = false },
+        ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 8.dp, top = 6.dp, bottom = 6.dp),
+        ) {
+            messages.forEachIndexed { index, message ->
+                val isLastMessage = index == messages.lastIndex
+                val isStreamingBubble = isLastMessage && message.role == ASSISTANT
+                val aboveRole = messages.getOrNull(index - 1)?.role
 
-                    if (prevRole != null && prevRole != message.role) {
+                Column {
+                    if (aboveRole != null && aboveRole != message.role) {
                         MessageSeparator()
                     }
 
-                    val isLastMessage = index == messages.lastIndex
-                    val isStreamingBubble = isLastMessage && message.role == Role.ASSISTANT
-
-                    MessageWrapper(
-                        message = message,
-                        streaming = isStreamingBubble,
-                        streamingState = if (isStreamingBubble) streamingState else null,
-                        contentFlow = if (isStreamingBubble) streamingContentFlow else null,
-                        onFileClick = onFileClick,
-                        onUrlClick = onUrlClick,
-                        onToolShowDiff = onToolShowDiff,
-                        onToolRevert = onToolRevert,
-                        onStopTask = onStopTask,
-                    )
+                    SelectionContainer {
+                        MessageWrapper(
+                            message = message,
+                            streaming = isStreamingBubble,
+                            streamingState = if (isStreamingBubble) streamingState else null,
+                            contentFlow = if (isStreamingBubble) streamingContentFlow else null,
+                            onFileClick = onFileClick,
+                            onUrlClick = onUrlClick,
+                            onToolShowDiff = onToolShowDiff,
+                            onToolRevert = onToolRevert,
+                            onStopTask = onStopTask,
+                        )
+                    }
                 }
-                // Scroll anchor
-                Spacer(Modifier.height(1.dp))
             }
         }
-
-        VerticalScrollbar(
-            adapter = rememberScrollbarAdapter(scrollState),
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .fillMaxHeight()
-                .width(12.dp),
-        )
     }
+    }
+}
+
+/**
+ * Returns 0 scroll distance, preventing focus-based scroll jumps (window focus, Alt-Tab).
+ * Matches JetBrains' NoScrollOnFocusBringIntoViewSpec from agents frontend.
+ */
+private object NoScrollBringIntoViewSpec : BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float = 0f
 }
 
 /**
@@ -233,12 +245,10 @@ private fun MessageWrapper(
                 ) {
                     Text(
                         text = timeFormat.format(Date(message.timestamp)),
-                        style = TextStyle(fontSize = 11.sp, color = colors.textSecondary),
+                        style = TextStyle(fontSize = scaledSp(11), color = colors.textSecondary),
                     )
                     Spacer(Modifier.width(6.dp))
-                    DisableSelection {
-                        CopyButton(text = message.textContent, alwaysVisible = true)
-                    }
+                    CopyButton(text = message.textContent, alwaysVisible = true)
                 }
 
                 ComposeMessageBubble(
@@ -271,16 +281,14 @@ private fun MessageWrapper(
 
                 // Copy button (top-right, visible on hover)
                 if (!streaming) {
-                    DisableSelection {
-                        Box(
-                            modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
-                        ) {
-                            CopyButton(
-                                text = message.textContent,
-                                alwaysVisible = false,
-                                forceVisible = messageHovered,
-                            )
-                        }
+                    Box(
+                        modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
+                    ) {
+                        CopyButton(
+                            text = message.textContent,
+                            alwaysVisible = false,
+                            forceVisible = messageHovered,
+                        )
                     }
                 }
             }
@@ -328,7 +336,7 @@ private fun CopyButton(
     ) {
         Text(
             text = "\uD83D\uDCCB",
-            style = TextStyle(fontSize = 12.sp),
+            style = TextStyle(fontSize = scaledSp(12)),
         )
     }
 }
@@ -380,7 +388,7 @@ private fun SetupPanel(
             Text(
                 text = UcuBundle.message("setup.title"),
                 style = TextStyle(
-                    fontSize = 20.sp,
+                    fontSize = scaledSp(20),
                     fontWeight = FontWeight.Bold,
                     color = colors.accentSecondary,
                 ),
@@ -390,7 +398,7 @@ private fun SetupPanel(
 
             Text(
                 text = UcuBundle.message("setup.subtitle"),
-                style = TextStyle(fontSize = 13.sp, color = colors.textSecondary),
+                style = TextStyle(fontSize = scaledSp(13), color = colors.textSecondary),
             )
 
             Spacer(Modifier.height(24.dp))
@@ -479,7 +487,7 @@ private fun SetupPanel(
                 Text(
                     text = UcuBundle.message("setup.installing"),
                     style = TextStyle(
-                        fontSize = 13.sp,
+                        fontSize = scaledSp(13),
                         fontStyle = FontStyle.Italic,
                         color = colors.textSecondary,
                     ),
@@ -492,7 +500,7 @@ private fun SetupPanel(
                 Text(
                     text = error,
                     style = TextStyle(
-                        fontSize = 12.sp,
+                        fontSize = scaledSp(12),
                         color = colors.statusError,
                         textAlign = TextAlign.Center,
                     ),
@@ -522,12 +530,12 @@ private fun SetupCheckRow(
     ) {
         Text(
             text = icon,
-            style = TextStyle(fontSize = 14.sp),
+            style = TextStyle(fontSize = scaledSp(14)),
         )
         Spacer(Modifier.width(10.dp))
         Text(
             text = text,
-            style = TextStyle(fontSize = 13.sp, color = colors.textPrimary),
+            style = TextStyle(fontSize = scaledSp(13), color = colors.textPrimary),
             modifier = Modifier.weight(1f),
         )
         if (action != null) {
@@ -564,7 +572,7 @@ private fun SetupActionButton(
         Text(
             text = label,
             style = TextStyle(
-                fontSize = 12.sp,
+                fontSize = scaledSp(12),
                 fontWeight = FontWeight.SemiBold,
                 color = if (disabled) colors.textSecondary else colors.surfacePrimary,
             ),
@@ -613,7 +621,7 @@ private fun WelcomeScreen(
             Text(
                 text = UcuBundle.message("welcome.title"),
                 style = TextStyle(
-                    fontSize = 20.sp,
+                    fontSize = scaledSp(20),
                     fontWeight = FontWeight.Bold,
                     color = colors.accentSecondary,
                 ),
@@ -625,7 +633,7 @@ private fun WelcomeScreen(
             Text(
                 text = UcuBundle.message("welcome.subtitle"),
                 style = TextStyle(
-                    fontSize = 13.sp,
+                    fontSize = scaledSp(13),
                     color = colors.textSecondary,
                 ),
             )
@@ -680,7 +688,7 @@ private fun WelcomeScreen(
             Text(
                 text = UcuBundle.message("welcome.hint"),
                 style = TextStyle(
-                    fontSize = 12.sp,
+                    fontSize = scaledSp(12),
                     fontStyle = FontStyle.Italic,
                     color = colors.textSecondary,
                     textAlign = TextAlign.Center,
@@ -704,12 +712,12 @@ private fun TipCard(icon: String, text: String) {
     ) {
         Text(
             text = icon,
-            style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Bold),
+            style = TextStyle(fontSize = scaledSp(14), fontWeight = FontWeight.Bold),
         )
         Spacer(Modifier.width(10.dp))
         Text(
             text = text,
-            style = TextStyle(fontSize = 13.sp, color = colors.textPrimary),
+            style = TextStyle(fontSize = scaledSp(13), color = colors.textPrimary),
         )
     }
 }

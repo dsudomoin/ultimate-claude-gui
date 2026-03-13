@@ -34,7 +34,7 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import ru.dsudomoin.claudecodegui.ui.compose.theme.scaledSp
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -94,7 +94,7 @@ fun ComposeElicitationPanel(
                 text = title.ifBlank { UcuBundle.message("elicitation.title") },
                 style = TextStyle(
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 13.sp,
+                    fontSize = scaledSp(13),
                     color = colors.textPrimary,
                 ),
             )
@@ -104,7 +104,7 @@ fun ComposeElicitationPanel(
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = description,
-                    style = TextStyle(fontSize = 12.sp, color = colors.textSecondary),
+                    style = TextStyle(fontSize = scaledSp(12), color = colors.textSecondary),
                 )
             }
 
@@ -131,7 +131,7 @@ private fun TextInput(
     BasicTextField(
         value = text,
         onValueChange = { text = it },
-        textStyle = TextStyle(fontSize = 13.sp, color = colors.textPrimary),
+        textStyle = TextStyle(fontSize = scaledSp(13), color = colors.textPrimary),
         cursorBrush = SolidColor(colors.accent),
         modifier = Modifier
             .fillMaxWidth()
@@ -144,7 +144,7 @@ private fun TextInput(
                 if (text.isEmpty()) {
                     Text(
                         text = UcuBundle.message("elicitation.placeholder"),
-                        style = TextStyle(fontSize = 13.sp, color = colors.textSecondary.copy(alpha = 0.5f)),
+                        style = TextStyle(fontSize = scaledSp(13), color = colors.textSecondary.copy(alpha = 0.5f)),
                     )
                 }
                 innerTextField()
@@ -223,7 +223,7 @@ private fun SelectInput(
             Text(
                 text = option,
                 style = TextStyle(
-                    fontSize = 13.sp,
+                    fontSize = scaledSp(13),
                     color = if (isSelected) colors.accent else colors.textPrimary,
                     fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                 ),
@@ -297,7 +297,7 @@ private fun ElicitationButton(
     Text(
         text = text,
         style = TextStyle(
-            fontSize = 12.sp,
+            fontSize = scaledSp(12),
             fontWeight = FontWeight.Medium,
             color = textColor,
         ),

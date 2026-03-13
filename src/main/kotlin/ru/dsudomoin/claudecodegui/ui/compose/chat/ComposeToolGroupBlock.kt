@@ -40,7 +40,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import ru.dsudomoin.claudecodegui.ui.compose.theme.scaledSp
 import org.jetbrains.jewel.ui.component.Text
 import ru.dsudomoin.claudecodegui.ui.compose.common.ComposeMarkdownContent
 import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
@@ -131,21 +131,21 @@ fun ComposeToolGroupBlock(
             // Chevron
             Text(
                 text = if (expanded) "\u25BC" else "\u25B6",
-                style = TextStyle(fontSize = 10.sp, color = colors.textSecondary),
+                style = TextStyle(fontSize = scaledSp(10), color = colors.textSecondary),
             )
             Spacer(Modifier.width(6.dp))
 
             // Category icon
             Text(
                 text = getCategoryEmoji(data.category),
-                style = TextStyle(fontSize = 13.sp),
+                style = TextStyle(fontSize = scaledSp(13)),
             )
             Spacer(Modifier.width(6.dp))
 
             // Category title with count
             Text(
                 text = "${getCategoryLabel(data.category)} (${data.items.size})",
-                style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Medium, color = colors.textPrimary),
+                style = TextStyle(fontSize = scaledSp(13), fontWeight = FontWeight.Medium, color = colors.textPrimary),
             )
             Spacer(Modifier.width(8.dp))
 
@@ -156,14 +156,14 @@ fun ComposeToolGroupBlock(
                 if (totalAdd > 0) {
                     Text(
                         text = "+$totalAdd",
-                        style = TextStyle(fontSize = 11.sp, color = colors.diffAddFg),
+                        style = TextStyle(fontSize = scaledSp(11), color = colors.diffAddFg),
                     )
                     Spacer(Modifier.width(4.dp))
                 }
                 if (totalDel > 0) {
                     Text(
                         text = "-$totalDel",
-                        style = TextStyle(fontSize = 11.sp, color = colors.diffDelFg),
+                        style = TextStyle(fontSize = scaledSp(11), color = colors.diffDelFg),
                     )
                     Spacer(Modifier.width(4.dp))
                 }
@@ -249,7 +249,7 @@ private fun GroupItemRow(
             if (hasExpandable) {
                 Text(
                     text = if (itemExpanded) "\u25BC" else "\u25B6",
-                    style = TextStyle(fontSize = 8.sp, color = colors.textSecondary),
+                    style = TextStyle(fontSize = scaledSp(8), color = colors.textSecondary),
                 )
                 Spacer(Modifier.width(4.dp))
             }
@@ -270,7 +270,7 @@ private fun GroupItemRow(
             Text(
                 text = summaryText,
                 style = TextStyle(
-                    fontSize = 12.sp,
+                    fontSize = scaledSp(12),
                     color = if (isClickableFile || isClickableUrl) colors.accent else colors.textPrimary,
                     textDecoration = if ((isClickableFile || isClickableUrl) && summaryHovered) {
                         TextDecoration.Underline
@@ -301,14 +301,14 @@ private fun GroupItemRow(
             if (item.diffAdditions > 0) {
                 Text(
                     text = "+${item.diffAdditions}",
-                    style = TextStyle(fontSize = 10.sp, color = colors.diffAddFg),
+                    style = TextStyle(fontSize = scaledSp(10), color = colors.diffAddFg),
                 )
                 Spacer(Modifier.width(4.dp))
             }
             if (item.diffDeletions > 0) {
                 Text(
                     text = "-${item.diffDeletions}",
-                    style = TextStyle(fontSize = 10.sp, color = colors.diffDelFg),
+                    style = TextStyle(fontSize = scaledSp(10), color = colors.diffDelFg),
                 )
                 Spacer(Modifier.width(4.dp))
             }
@@ -377,7 +377,7 @@ private fun GroupItemRow(
                         Text(
                             text = content.text.take(2000),
                             style = TextStyle(
-                                fontSize = 12.sp,
+                                fontSize = scaledSp(12),
                                 fontFamily = FontFamily.Monospace,
                                 color = colors.textPrimary,
                             ),

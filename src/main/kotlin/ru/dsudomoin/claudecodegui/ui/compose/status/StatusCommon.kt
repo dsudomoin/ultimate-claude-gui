@@ -18,7 +18,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import ru.dsudomoin.claudecodegui.ui.compose.theme.scaledSp
 import org.jetbrains.jewel.ui.component.Text
 import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
 
@@ -74,7 +74,7 @@ fun EmptyTabPlaceholder(
         Text(
             text = text,
             style = TextStyle(
-                fontSize = 12.sp,
+                fontSize = scaledSp(12),
                 color = colors.textSecondary,
             ),
         )

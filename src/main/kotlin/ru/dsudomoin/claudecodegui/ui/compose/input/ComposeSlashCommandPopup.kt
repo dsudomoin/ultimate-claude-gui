@@ -22,7 +22,7 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import ru.dsudomoin.claudecodegui.ui.compose.theme.scaledSp
 import org.jetbrains.jewel.ui.component.Text
 import ru.dsudomoin.claudecodegui.command.SlashCommand
 import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
@@ -89,7 +89,7 @@ private fun CommandItem(
         Text(
             text = command.name,
             style = TextStyle(
-                fontSize = 13.sp,
+                fontSize = scaledSp(13),
                 fontWeight = FontWeight.Bold,
                 color = colors.textPrimary,
             ),
@@ -100,7 +100,7 @@ private fun CommandItem(
         // Description
         Text(
             text = command.description,
-            style = TextStyle(fontSize = 12.sp, color = colors.textSecondary),
+            style = TextStyle(fontSize = scaledSp(12), color = colors.textSecondary),
         )
     }
 }
