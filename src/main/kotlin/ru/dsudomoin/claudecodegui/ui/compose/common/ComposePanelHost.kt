@@ -3,6 +3,7 @@
 package ru.dsudomoin.claudecodegui.ui.compose.common
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.unit.TextUnit
 import org.jetbrains.jewel.bridge.JewelComposePanel
@@ -21,8 +22,10 @@ import org.jetbrains.jewel.markdown.rendering.InlinesStyling
 import org.jetbrains.jewel.markdown.rendering.MarkdownBlockRenderer
 import org.jetbrains.jewel.markdown.rendering.MarkdownStyling
 import ru.dsudomoin.claudecodegui.ui.compose.markdown.FilePathProcessorExtension
+import ru.dsudomoin.claudecodegui.service.SettingsService
 import ru.dsudomoin.claudecodegui.ui.compose.theme.ClaudeComposeTheme
 import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
+import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalFontScale
 import javax.swing.JComponent
 
 /**
@@ -34,9 +37,12 @@ import javax.swing.JComponent
  */
 fun createThemedComposePanel(content: @Composable () -> Unit): JComponent {
     return JewelComposePanel(focusOnClickInside = true) {
-        ClaudeComposeTheme {
-            ConfiguredMarkdownStyling {
-                content()
+        val fontScale = SettingsService.getInstance().state.fontScale
+        CompositionLocalProvider(LocalFontScale provides fontScale) {
+            ClaudeComposeTheme {
+                ConfiguredMarkdownStyling {
+                    content()
+                }
             }
         }
     }
