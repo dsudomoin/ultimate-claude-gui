@@ -23,6 +23,8 @@ class AppearanceConfigurable : Configurable {
     private var panel: JPanel? = null
     private var presetCombo: ComboBox<String>? = null
     private val colorRows = mutableListOf<ColorRow>()
+    private var fontScaleSlider: JSlider? = null
+    private var fontScaleSpinner: JSpinner? = null
 
     // Ordered list of (key, labelKey) for the settings UI
     private val colorEntries = listOf(
@@ -74,6 +76,36 @@ class AppearanceConfigurable : Configurable {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             border = JBUI.Borders.empty(8)
         }
+
+        // Font scale row
+        val initialFontScaleInt = (SettingsService.getInstance().state.fontScale * 100).toInt()
+        val slider = JSlider(70, 200, initialFontScaleInt.coerceIn(70, 200)).apply {
+            majorTickSpacing = 0
+            paintTicks = false
+            paintLabels = false
+        }
+        val spinnerModel = SpinnerNumberModel(initialFontScaleInt.coerceIn(70, 200), 70, 200, 5)
+        val spinner = JSpinner(spinnerModel)
+        fontScaleSlider = slider
+        fontScaleSpinner = spinner
+
+        slider.addChangeListener {
+            val v = slider.value
+            if ((spinner.value as Int) != v) spinner.value = v
+        }
+        spinner.addChangeListener {
+            val v = spinner.value as Int
+            if (slider.value != v) slider.value = v
+        }
+
+        val fontScalePanel = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), 0)).apply {
+            alignmentX = Component.LEFT_ALIGNMENT
+            add(JBLabel(UcuBundle.message("settings.fontScale")))
+            add(slider)
+            add(spinner)
+        }
+        mainPanel.add(fontScalePanel)
+        mainPanel.add(Box.createVerticalStrut(JBUI.scale(8)))
 
         // Preset selector row
         val presetPanel = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), 0)).apply {
@@ -213,6 +245,7 @@ class AppearanceConfigurable : Configurable {
         val currentPresetId = ThemePresets.ALL.getOrNull(currentPresetIdx)?.id ?: "default"
 
         if (currentPresetId != state.themePresetId) return true
+        if (fontScaleSlider?.value != (state.fontScale * 100).toInt()) return true
 
         val currentOverrides = buildOverridesMap()
         return currentOverrides != state.customColorOverrides
@@ -223,11 +256,19 @@ class AppearanceConfigurable : Configurable {
         val currentPresetId = ThemePresets.ALL.getOrNull(currentPresetIdx)?.id ?: "default"
         val overrides = buildOverridesMap()
 
+        fontScaleSlider?.value?.let { sliderValue ->
+            SettingsService.getInstance().state.fontScale = sliderValue / 100f
+        }
         ThemeManager.saveAndApply(currentPresetId, overrides)
     }
 
     override fun reset() {
         val state = SettingsService.getInstance().state
+
+        // Set font scale
+        val fontScaleInt = (state.fontScale * 100).toInt().coerceIn(70, 200)
+        fontScaleSlider?.value = fontScaleInt
+        fontScaleSpinner?.value = fontScaleInt
 
         // Set preset combo
         val presetIdx = ThemePresets.ALL.indexOfFirst { it.id == state.themePresetId }
