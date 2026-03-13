@@ -63,7 +63,9 @@ class SettingsService : PersistentStateComponent<SettingsService.State> {
         /** SDK plugins configuration as JSON array: [{"name":"...", "path":"..."}] */
         var pluginsJson: String = "",
         /** Plugin UI language: "" = IDE default, "en" = English, "ru" = Russian */
-        var language: String = ""
+        var language: String = "",
+        /** Font scale factor for chat UI: 1.0 = 100%. Range: 0.7–2.0 */
+        var fontScale: Float = 1.0f
     )
 
     private var myState = State()
