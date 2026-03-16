@@ -28,7 +28,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import ru.dsudomoin.claudecodegui.ui.compose.theme.scaledSp
 import org.jetbrains.jewel.ui.component.Text
 import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
@@ -58,7 +58,7 @@ fun ComposeQueuePanel(
         Text(
             text = UcuBundle.message("queue.header", items.size),
             style = TextStyle(
-                fontSize = 11.sp,
+                fontSize = scaledSp(11),
                 fontWeight = FontWeight.Bold,
                 color = colors.textSecondary,
             ),
@@ -116,7 +116,7 @@ private fun QueueItemRow(
             Text(
                 text = "#${item.index + 1}",
                 style = TextStyle(
-                    fontSize = 10.sp,
+                    fontSize = scaledSp(10),
                     fontWeight = FontWeight.Bold,
                     color = colors.accent,
                 ),
@@ -129,7 +129,7 @@ private fun QueueItemRow(
         if (item.imageCount > 0) {
             Text(
                 text = "\uD83D\uDDBC ${item.imageCount}",
-                style = TextStyle(fontSize = 10.sp, color = colors.textSecondary),
+                style = TextStyle(fontSize = scaledSp(10), color = colors.textSecondary),
             )
             Spacer(Modifier.width(6.dp))
         }
@@ -138,7 +138,7 @@ private fun QueueItemRow(
         val displayText = item.text.replace('\n', ' ').trim()
         Text(
             text = displayText,
-            style = TextStyle(fontSize = 12.sp, color = colors.textPrimary),
+            style = TextStyle(fontSize = scaledSp(12), color = colors.textPrimary),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
@@ -161,7 +161,7 @@ private fun QueueItemRow(
         ) {
             Text(
                 text = "\u2715",
-                style = TextStyle(fontSize = 11.sp, color = colors.textSecondary),
+                style = TextStyle(fontSize = scaledSp(11), color = colors.textSecondary),
             )
         }
     }

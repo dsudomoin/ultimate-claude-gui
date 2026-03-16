@@ -84,6 +84,7 @@ fun ComposeChatContainer(
                 onMentionDismiss = callbacks.onMentionDismiss,
                 onPromptSuggestionSelect = callbacks.onPromptSuggestionSelect,
                 onFileClick = callbacks.onFileClick,
+                onUrlClick = callbacks.onUrlClick,
                 onToolShowDiff = callbacks.onToolShowDiff,
                 onToolRevert = callbacks.onToolRevert,
                 onStopTask = callbacks.onStopTask,
@@ -142,6 +143,8 @@ data class ChatCallbacks(
     val onPromptSuggestionSelect: (String) -> Unit = {},
     // File navigation
     val onFileClick: ((String) -> Unit)? = null,
+    // URL click (ide-file:// links + browser URLs)
+    val onUrlClick: ((String) -> Unit)? = null,
     // Tool actions (diff / revert / stop task)
     val onToolShowDiff: ((ExpandableContent) -> Unit)? = null,
     val onToolRevert: ((ExpandableContent) -> Unit)? = null,

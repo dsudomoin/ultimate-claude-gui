@@ -116,7 +116,7 @@ object SessionStorage {
         }
     }
 
-    /** Get title for a session (slug or first user message text). */
+    /** Get title for a session (first user message text, falling back to slug). */
     fun getTitle(projectPath: String, sessionId: String): String? {
         val file = File(projectDir(projectPath), "$sessionId.jsonl")
         if (!file.exists()) return null
@@ -145,9 +145,9 @@ object SessionStorage {
                 }
             }
 
-            slug ?: firstUserText?.take(60)?.let {
-                if (it.length >= 60) "${it.take(57)}..." else it
-            }
+            firstUserText?.let { stripEnrichedContext(it).trim() }?.takeIf { it.isNotBlank() }
+                ?.take(60)?.let { if (it.length >= 60) "${it.take(57)}..." else it }
+                ?: slug
         } catch (e: Exception) {
             log.debug("Failed to get title for $sessionId: ${e.message}")
             null
@@ -242,10 +242,10 @@ object SessionStorage {
                 val title = when {
                     !customTitle.isNullOrBlank() -> customTitle
                     !localTitle.isNullOrBlank() -> localTitle
-                    summary.isNotBlank() -> summary.take(60).let {
+                    !firstPrompt.isNullOrBlank() -> firstPrompt.take(60).let {
                         if (it.length >= 60) "${it.take(57)}..." else it
                     }
-                    !firstPrompt.isNullOrBlank() -> firstPrompt.take(60).let {
+                    summary.isNotBlank() -> summary.take(60).let {
                         if (it.length >= 60) "${it.take(57)}..." else it
                     }
                     else -> "New Chat"
@@ -340,9 +340,10 @@ object SessionStorage {
             }
         }
 
-        val title = slug ?: firstUserText?.take(60)?.let {
-            if (it.length >= 60) "${it.take(57)}..." else it.ifBlank { "New Chat" }
-        } ?: "New Chat"
+        val cleanedUserText = firstUserText?.let { stripEnrichedContext(it).trim() }?.takeIf { it.isNotBlank() }
+        val title = cleanedUserText?.take(60)?.let {
+            if (it.length >= 60) "${it.take(57)}..." else it
+        } ?: slug ?: "New Chat"
 
         return SessionInfo(
             sessionId = sessionId,

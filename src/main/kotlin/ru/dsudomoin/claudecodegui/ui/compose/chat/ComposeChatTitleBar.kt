@@ -41,7 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import ru.dsudomoin.claudecodegui.ui.compose.theme.scaledSp
 import org.jetbrains.jewel.ui.component.Text
 import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
@@ -80,7 +80,7 @@ fun ComposeChatTitleBar(
                 },
                 singleLine = true,
                 textStyle = TextStyle(
-                    fontSize = 13.sp,
+                    fontSize = scaledSp(13),
                     fontWeight = FontWeight.SemiBold,
                     color = colors.textPrimary,
                 ),
@@ -148,7 +148,7 @@ fun ComposeChatTitleBar(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 style = TextStyle(
-                    fontSize = 13.sp,
+                    fontSize = scaledSp(13),
                     fontWeight = FontWeight.SemiBold,
                     color = colors.textPrimary,
                 ),
@@ -193,7 +193,7 @@ private fun TitleActionButton(
     ) {
         Text(
             text = icon,
-            style = TextStyle(fontSize = 12.sp, color = colors.textSecondary),
+            style = TextStyle(fontSize = scaledSp(12), color = colors.textSecondary),
         )
     }
 }

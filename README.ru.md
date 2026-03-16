@@ -13,6 +13,12 @@
 </p>
 
 <p align="center">
+  <a href="https://plugins.jetbrains.com/plugin/30343-ultimate-claude-gui"><img src="https://img.shields.io/jetbrains/plugin/v/30343-ultimate-claude-gui.svg?label=Marketplace&style=flat-square" alt="Версия на JetBrains Marketplace"/></a>
+  <a href="https://plugins.jetbrains.com/plugin/30343-ultimate-claude-gui"><img src="https://img.shields.io/jetbrains/plugin/d/30343-ultimate-claude-gui.svg?style=flat-square" alt="Загрузки"/></a>
+  <a href="https://plugins.jetbrains.com/plugin/30343-ultimate-claude-gui"><img src="https://img.shields.io/jetbrains/plugin/r/rating/30343-ultimate-claude-gui?style=flat-square" alt="Рейтинг"/></a>
+</p>
+
+<p align="center">
   <a href="#установка">Установка</a> &bull;
   <a href="#возможности">Возможности</a> &bull;
   <a href="#архитектура">Архитектура</a> &bull;

@@ -2,27 +2,29 @@
 
 package ru.dsudomoin.claudecodegui.ui.compose.chat
 
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import org.jetbrains.jewel.foundation.ExperimentalJewelApi
 import kotlinx.serialization.json.JsonElement
 import ru.dsudomoin.claudecodegui.ui.compose.approval.ComposeApprovalPanel
@@ -79,6 +81,8 @@ fun ComposeChatPanel(
     onPromptSuggestionSelect: (String) -> Unit = {},
     // ── File navigation callback ──
     onFileClick: ((String) -> Unit)? = null,
+    // ── URL click callback (ide-file:// + browser) ──
+    onUrlClick: ((String) -> Unit)? = null,
     // ── Tool action callbacks ──
     onToolShowDiff: ((ExpandableContent) -> Unit)? = null,
     onToolRevert: ((ExpandableContent) -> Unit)? = null,
@@ -129,8 +133,6 @@ fun ComposeChatPanel(
     var streamingResponseText by remember { mutableStateOf(viewModel.streamingResponseText) }
     var streamingContentFlow by remember { mutableStateOf(viewModel.streamingContentFlow) }
     var thinkingCollapsed by remember { mutableStateOf(viewModel.thinkingCollapsed) }
-    var scrollToBottomTrigger by remember { mutableIntStateOf(viewModel.scrollToBottomTrigger) }
-    var forceScrollToBottomTrigger by remember { mutableIntStateOf(viewModel.forceScrollToBottomTrigger) }
     var todos by remember { mutableStateOf(viewModel.todos) }
     var fileChanges by remember { mutableStateOf(viewModel.fileChanges) }
     var agents by remember { mutableStateOf(viewModel.agents) }
@@ -148,8 +150,8 @@ fun ComposeChatPanel(
                 ChatViewModel.Field.STREAMING_RESPONSE -> streamingResponseText = viewModel.streamingResponseText
                 ChatViewModel.Field.STREAMING_CONTENT_FLOW -> streamingContentFlow = viewModel.streamingContentFlow
                 ChatViewModel.Field.THINKING_COLLAPSED -> thinkingCollapsed = viewModel.thinkingCollapsed
-                ChatViewModel.Field.SCROLL_TRIGGER -> scrollToBottomTrigger = viewModel.scrollToBottomTrigger
-                ChatViewModel.Field.FORCE_SCROLL_TRIGGER -> forceScrollToBottomTrigger = viewModel.forceScrollToBottomTrigger
+                ChatViewModel.Field.TAB_ACTIVATED -> { /* no-op: scroll managed by LazyColumn */ }
+                ChatViewModel.Field.PANEL_VISIBILITY -> { /* no-op: scroll managed by LazyColumn */ }
                 ChatViewModel.Field.TODOS -> todos = viewModel.todos
                 ChatViewModel.Field.FILE_CHANGES -> fileChanges = viewModel.fileChanges
                 ChatViewModel.Field.AGENTS -> agents = viewModel.agents
@@ -223,158 +225,52 @@ fun ComposeChatPanel(
     val totalInputTokens = lastResultMeta?.modelUsage?.values?.sumOf { it.inputTokens } ?: 0
     val totalOutputTokens = lastResultMeta?.modelUsage?.values?.sumOf { it.outputTokens } ?: 0
 
-    val scrollState = rememberScrollState()
-    var followTail by remember { mutableStateOf(true) }
-    var autoScrollInProgress by remember { mutableStateOf(false) }
-    var userInteracted by remember { mutableStateOf(false) }
-    var initialBottomSnapDone by remember { mutableStateOf(false) }
-    var pendingForceScrollTrigger by remember { mutableIntStateOf(0) }
-    var lastKnownScrollValue by remember { mutableIntStateOf(0) }
-    var lastKnownScrollMaxValue by remember { mutableIntStateOf(0) }
-    var wasNearBottomBeforeCollapse by remember { mutableStateOf(true) }
-    var pendingViewportRestore by remember { mutableStateOf(false) }
-    val datasetKey = messages.firstOrNull()?.timestamp
+    // ── Scroll: Column + verticalScroll (NOT LazyColumn) ─────────────────
+    // Uses regular Column with verticalScroll(scrollState) — all items composed
+    // once and kept alive. Eliminates lazy composition/decomposition jank during
+    // fast scrolling. This matches JetBrains' agents chat implementation.
 
-    suspend fun scrollToBottom(force: Boolean = false) {
-        if (!force && !followTail) return
-        val target = scrollState.maxValue
-        if (!force && target - scrollState.value <= 2) return
-        autoScrollInProgress = true
-        try {
-            scrollState.scrollTo(target)
-        } finally {
-            autoScrollInProgress = false
+    // New ScrollState per conversation. When the first message's timestamp
+    // changes, a different chat was loaded → fresh state.
+    val chatKey = messages.firstOrNull()?.timestamp ?: 0L
+    val scrollState = remember(chatKey) { ScrollState(0) }
+
+    // Scroll to bottom on chat switch / session load.
+    // Waits one frame for layout to compute maxValue, then scrolls.
+    LaunchedEffect(chatKey) {
+        withFrameNanos { }
+        if (scrollState.maxValue > 0) {
+            scrollState.scrollTo(scrollState.maxValue)
         }
     }
 
-    // Reset follow state for a newly loaded dataset/session.
-    LaunchedEffect(datasetKey) {
-        followTail = true
-        userInteracted = false
-        initialBottomSnapDone = false
-        lastKnownScrollValue = 0
-        lastKnownScrollMaxValue = 0
-        wasNearBottomBeforeCollapse = true
-        pendingViewportRestore = false
+    val isAtBottom by remember {
+        derivedStateOf {
+            scrollState.maxValue == 0 || scrollState.value >= scrollState.maxValue - 50
+        }
     }
 
-    // Detect user intent from actual scroll position changes.
-    LaunchedEffect(scrollState, messages.size) {
-        snapshotFlow { Triple(scrollState.value, scrollState.maxValue, scrollState.isScrollInProgress) }
-            .distinctUntilChanged()
-            .collect { (value, maxValue, isScrollInProgress) ->
-                val nearBottom = (maxValue - value) <= 24
-
-                if (maxValue > 0) {
-                    lastKnownScrollValue = value
-                    lastKnownScrollMaxValue = maxValue
-                    wasNearBottomBeforeCollapse = nearBottom
-                } else if (messages.isNotEmpty() && lastKnownScrollMaxValue > 0) {
-                    // Tool window can report zero viewport while hidden/collapsed.
-                    pendingViewportRestore = true
-                }
-
-                if (pendingViewportRestore && maxValue > 0 && messages.isNotEmpty()) {
-                    if (followTail || wasNearBottomBeforeCollapse) {
-                        // Reuse the existing stabilization path that keeps tail pinned
-                        // across several layout passes.
-                        pendingForceScrollTrigger++
-                    } else {
-                        autoScrollInProgress = true
+    // Auto-scroll: when content grows (maxValue increases), scroll to bottom
+    // if user was already at bottom. Checks against previous maxValue to avoid
+    // race conditions (isAtBottom would be stale when maxValue just increased).
+    LaunchedEffect(scrollState) {
+        var prevMaxValue = scrollState.maxValue
+        snapshotFlow { scrollState.maxValue }
+            .collect { newMaxValue ->
+                if (newMaxValue > prevMaxValue) {
+                    val wasAtBottom = prevMaxValue == 0 || scrollState.value >= prevMaxValue - 50
+                    if (wasAtBottom) {
                         try {
-                            val ratio = if (lastKnownScrollMaxValue > 0) {
-                                lastKnownScrollValue.toFloat() / lastKnownScrollMaxValue.toFloat()
-                            } else {
-                                0f
-                            }
-                            val target = (ratio * maxValue).toInt().coerceIn(0, maxValue)
-                            scrollState.scrollTo(target)
-                        } finally {
-                            autoScrollInProgress = false
+                            scrollState.scrollTo(scrollState.maxValue)
+                        } catch (_: IllegalStateException) {
+                            // Layout may still be in progress; retry next frame
+                            withFrameNanos { }
+                            scrollState.scrollTo(scrollState.maxValue)
                         }
                     }
-                    pendingViewportRestore = false
                 }
-
-                if (nearBottom) {
-                    followTail = true
-                } else if (isScrollInProgress && !autoScrollInProgress) {
-                    followTail = false
-                    userInteracted = true
-                }
+                prevMaxValue = newMaxValue
             }
-    }
-
-    // Initial snap-to-bottom for loaded history/session after real layout.
-    LaunchedEffect(datasetKey, scrollState.maxValue, messages.size) {
-        if (messages.isEmpty() || initialBottomSnapDone || userInteracted) return@LaunchedEffect
-        when {
-            scrollState.maxValue > 0 -> {
-                scrollToBottom(force = true)
-                initialBottomSnapDone = true
-            }
-            messages.size <= 2 -> {
-                initialBottomSnapDone = true
-            }
-        }
-    }
-
-    // Explicit bottom requests from controller (send/load flow) while generating.
-    LaunchedEffect(scrollToBottomTrigger, isStreaming, isSending) {
-        if (scrollToBottomTrigger > 0 && (isStreaming || isSending || !userInteracted) && followTail) {
-            scrollToBottom(force = true)
-        }
-    }
-
-    // Capture explicit force-scroll requests (session load/restore) and apply them
-    // after the list has a real scroll range.
-    LaunchedEffect(forceScrollToBottomTrigger) {
-        if (forceScrollToBottomTrigger > 0) {
-            pendingForceScrollTrigger = forceScrollToBottomTrigger
-        }
-    }
-
-    LaunchedEffect(pendingForceScrollTrigger) {
-        if (pendingForceScrollTrigger <= 0) return@LaunchedEffect
-        followTail = true
-        userInteracted = false
-
-        // Session history can expand layout in several passes (markdown/tool blocks).
-        // Keep snapping to tail until scroll range stabilizes.
-        delay(16)
-        var lastMaxValue = -1
-        var stableTicks = 0
-        var ticks = 0
-        while (ticks < 100) {
-            val maxValue = scrollState.maxValue
-            if (maxValue == lastMaxValue) {
-                stableTicks++
-            } else {
-                lastMaxValue = maxValue
-                stableTicks = 0
-            }
-
-            if (messages.isNotEmpty()) {
-                scrollToBottom(force = true)
-            }
-
-            if (messages.isNotEmpty() && stableTicks >= 6) {
-                break
-            }
-            delay(20)
-            ticks++
-        }
-
-        scrollToBottom(force = true)
-        initialBottomSnapDone = true
-        pendingForceScrollTrigger = 0
-    }
-
-    // Keep tail pinned during streaming updates if user didn't scroll away.
-    LaunchedEffect(messages.size, streamingResponseText.length, streamingThinkingText.length, streamingContentFlow.size, isStreaming, isSending) {
-        if (isStreaming || isSending) {
-            scrollToBottom(force = false)
-        }
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -401,6 +297,7 @@ fun ComposeChatPanel(
                     ) else null,
                     streamingContentFlow = if (isStreaming) streamingContentFlow else null,
                     onFileClick = onFileClick,
+                    onUrlClick = onUrlClick,
                     onToolShowDiff = onToolShowDiff,
                     onToolRevert = onToolRevert,
                     onStopTask = onStopTask,
@@ -453,6 +350,20 @@ fun ComposeChatPanel(
                         )
                     }
                 }
+
+                // Jump-to-bottom button
+                val scope = rememberCoroutineScope()
+                JumpToBottomButton(
+                    visible = !isAtBottom,
+                    onClick = {
+                        scope.launch {
+                            scrollState.animateScrollTo(scrollState.maxValue)
+                        }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 20.dp, bottom = 8.dp),
+                )
             }
 
             // ── Bottom section: status + queue + input ───────────────────────────

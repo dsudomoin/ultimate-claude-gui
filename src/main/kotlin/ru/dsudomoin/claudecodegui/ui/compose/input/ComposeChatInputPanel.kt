@@ -49,7 +49,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import ru.dsudomoin.claudecodegui.ui.compose.theme.scaledSp
 import org.jetbrains.jewel.ui.component.Text
 import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.command.SlashCommand
@@ -314,7 +314,7 @@ fun ComposeChatInputPanel(
                     }
                 },
                 textStyle = TextStyle(
-                    fontSize = 14.sp,
+                    fontSize = scaledSp(14),
                     color = colors.textPrimary,
                 ),
                 cursorBrush = SolidColor(colors.textPrimary),
@@ -375,6 +375,19 @@ fun ComposeChatInputPanel(
                                     onMentionDismiss()
                                     true
                                 }
+                                // Tab = accept top prompt suggestion when input is empty
+                                !slashPopupVisible && !mentionPopupVisible
+                                    && event.key == Key.Tab
+                                    && promptSuggestions.isNotEmpty()
+                                    && tfv.text.isBlank() -> {
+                                    val suggestion = promptSuggestions.first().trim()
+                                    if (suggestion.isNotEmpty()) {
+                                        tfv = TextFieldValue(suggestion, TextRange(suggestion.length))
+                                        onTextChange(suggestion)
+                                        onPromptSuggestionClick(suggestion)
+                                    }
+                                    true
+                                }
                                 // Shift+Enter = insert newline at cursor position
                                 event.key == Key.Enter && event.isShiftPressed -> {
                                     val cursorPos = tfv.selection.start
@@ -385,8 +398,11 @@ fun ComposeChatInputPanel(
                                 }
                                 // Plain Enter = send message (or queue if already sending)
                                 event.key == Key.Enter -> {
-                                    if (text.isNotBlank()) {
-                                        onAddToHistory(text)
+                                    val currentText = tfv.text
+                                    val hasText = currentText.isNotBlank()
+                                    val hasImages = attachedImages.isNotEmpty()
+                                    if (hasText || hasImages) {
+                                        if (hasText) onAddToHistory(currentText)
                                         historyIndex = -1
                                         historyDraft = ""
                                         onSendOrStop()
@@ -435,7 +451,7 @@ fun ComposeChatInputPanel(
                         Text(
                             text = UcuBundle.message("chat.placeholder"),
                             style = TextStyle(
-                                fontSize = 14.sp,
+                                fontSize = scaledSp(14),
                                 color = colors.textSecondary,
                             ),
                         )
@@ -486,7 +502,7 @@ private fun PromptSuggestionChip(
         Text(
             text = text,
             style = TextStyle(
-                fontSize = 11.sp,
+                fontSize = scaledSp(11),
                 color = colors.textSecondary,
             ),
             maxLines = 1,

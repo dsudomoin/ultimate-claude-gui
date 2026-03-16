@@ -44,8 +44,8 @@ class ChatViewModel {
         IS_STREAMING,
         IS_SENDING,
         THINKING_COLLAPSED,
-        SCROLL_TRIGGER,
-        FORCE_SCROLL_TRIGGER,
+        TAB_ACTIVATED,
+        PANEL_VISIBILITY,
         TODOS,
         FILE_CHANGES,
         AGENTS,
@@ -293,25 +293,31 @@ class ChatViewModel {
         }
     }
 
-    // ── Scroll ───────────────────────────────────────────────────────────────
+    // ── Scroll / Tab Lifecycle ──────────────────────────────────────────────
 
-    /** Incremented to trigger scroll-to-bottom in the LazyColumn. */
-    var scrollToBottomTrigger: Int = 0
+    /**
+     * Triggered when the tab containing this chat becomes the selected tab.
+     * Compose uses this to recreate scroll state from persisted viewport after
+     * hide/show lifecycle transitions.
+     */
+    var tabActivatedTrigger: Int = 0
         private set
 
-    fun requestScrollToBottom() {
-        scrollToBottomTrigger++
-        notifyField(Field.SCROLL_TRIGGER)
+    fun requestTabActivated() {
+        tabActivatedTrigger++
+        notifyField(Field.TAB_ACTIVATED)
     }
 
-    /** Explicit, one-shot bottom snap (used for session load/restore). */
-    var forceScrollToBottomTrigger: Int = 0
+    /** True when the host Swing panel is currently shown in selected tab. */
+    var panelVisible: Boolean = true
         private set
 
-    fun requestForceScrollToBottom() {
-        forceScrollToBottomTrigger++
-        notifyField(Field.FORCE_SCROLL_TRIGGER)
+    fun setPanelVisible(visible: Boolean) {
+        if (panelVisible == visible) return
+        panelVisible = visible
+        notifyField(Field.PANEL_VISIBILITY)
     }
+
 }
 
 /** Display data for a queued message (decoupled from ChatPanel.QueuedMessage). */

@@ -6,6 +6,7 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -39,7 +40,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import ru.dsudomoin.claudecodegui.ui.compose.theme.scaledSp
 import org.jetbrains.jewel.ui.component.Text
 import ru.dsudomoin.claudecodegui.ui.compose.common.ComposeMarkdownContent
 import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
@@ -81,6 +82,7 @@ data class ToolGroupData(
 fun ComposeToolGroupBlock(
     data: ToolGroupData,
     onFileClick: ((String) -> Unit)? = null,
+    onUrlClick: ((String) -> Unit)? = null,
     onToolShowDiff: ((ExpandableContent) -> Unit)? = null,
     onToolRevert: ((ExpandableContent) -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -129,21 +131,21 @@ fun ComposeToolGroupBlock(
             // Chevron
             Text(
                 text = if (expanded) "\u25BC" else "\u25B6",
-                style = TextStyle(fontSize = 10.sp, color = colors.textSecondary),
+                style = TextStyle(fontSize = scaledSp(10), color = colors.textSecondary),
             )
             Spacer(Modifier.width(6.dp))
 
             // Category icon
             Text(
                 text = getCategoryEmoji(data.category),
-                style = TextStyle(fontSize = 13.sp),
+                style = TextStyle(fontSize = scaledSp(13)),
             )
             Spacer(Modifier.width(6.dp))
 
             // Category title with count
             Text(
                 text = "${getCategoryLabel(data.category)} (${data.items.size})",
-                style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Medium, color = colors.textPrimary),
+                style = TextStyle(fontSize = scaledSp(13), fontWeight = FontWeight.Medium, color = colors.textPrimary),
             )
             Spacer(Modifier.width(8.dp))
 
@@ -154,14 +156,14 @@ fun ComposeToolGroupBlock(
                 if (totalAdd > 0) {
                     Text(
                         text = "+$totalAdd",
-                        style = TextStyle(fontSize = 11.sp, color = colors.diffAddFg),
+                        style = TextStyle(fontSize = scaledSp(11), color = colors.diffAddFg),
                     )
                     Spacer(Modifier.width(4.dp))
                 }
                 if (totalDel > 0) {
                     Text(
                         text = "-$totalDel",
-                        style = TextStyle(fontSize = 11.sp, color = colors.diffDelFg),
+                        style = TextStyle(fontSize = scaledSp(11), color = colors.diffDelFg),
                     )
                     Spacer(Modifier.width(4.dp))
                 }
@@ -170,7 +172,7 @@ fun ComposeToolGroupBlock(
             Spacer(Modifier.weight(1f))
 
             // Aggregate status
-            ToolStatusBadge(status = aggregateStatus, compact = true)
+            ToolStatusBadge(status = aggregateStatus)
         }
 
         // Expandable items list
@@ -195,6 +197,7 @@ fun ComposeToolGroupBlock(
                             item = item,
                             category = data.category,
                             onFileClick = onFileClick,
+                            onUrlClick = onUrlClick,
                             onShowDiff = item.expandable?.let { exp -> onToolShowDiff?.let { cb -> { cb(exp) } } },
                             onRevert = item.expandable?.let { exp -> onToolRevert?.let { cb -> { cb(exp) } } },
                         )
@@ -210,6 +213,7 @@ private fun GroupItemRow(
     item: ToolGroupItemData,
     category: ToolCategoryType = ToolCategoryType.OTHER,
     onFileClick: ((String) -> Unit)?,
+    onUrlClick: ((String) -> Unit)?,
     onShowDiff: (() -> Unit)? = null,
     onRevert: (() -> Unit)? = null,
 ) {
@@ -217,7 +221,8 @@ private fun GroupItemRow(
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
     val hasExpandable = item.expandable != null
-    val isReadTool = item.toolName.lowercase() in setOf("read", "read_file")
+    val lowerToolName = item.toolName.lowercase()
+    val isReadTool = lowerToolName in setOf("read", "read_file")
     var itemExpanded by remember(item.id, isReadTool, hasExpandable) {
         mutableStateOf(isReadTool && hasExpandable)
     }
@@ -244,7 +249,7 @@ private fun GroupItemRow(
             if (hasExpandable) {
                 Text(
                     text = if (itemExpanded) "\u25BC" else "\u25B6",
-                    style = TextStyle(fontSize = 8.sp, color = colors.textSecondary),
+                    style = TextStyle(fontSize = scaledSp(8), color = colors.textSecondary),
                 )
                 Spacer(Modifier.width(4.dp))
             }
@@ -252,6 +257,7 @@ private fun GroupItemRow(
             // Summary (file link or text)
             val summaryText = item.summary.ifEmpty { item.toolName }
             val isClickableFile = item.isFileLink && onFileClick != null && item.filePath != null
+            val isClickableUrl = !isClickableFile && onUrlClick != null && isHttpUrl(summaryText)
             val summaryInteraction = remember { MutableInteractionSource() }
             val summaryHovered by summaryInteraction.collectIsHoveredAsState()
             if (item.isFileLink) {
@@ -264,9 +270,13 @@ private fun GroupItemRow(
             Text(
                 text = summaryText,
                 style = TextStyle(
-                    fontSize = 12.sp,
-                    color = if (item.isFileLink) colors.accent else colors.textPrimary,
-                    textDecoration = if (isClickableFile && summaryHovered) TextDecoration.Underline else null,
+                    fontSize = scaledSp(12),
+                    color = if (isClickableFile || isClickableUrl) colors.accent else colors.textPrimary,
+                    textDecoration = if ((isClickableFile || isClickableUrl) && summaryHovered) {
+                        TextDecoration.Underline
+                    } else {
+                        null
+                    },
                 ),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -278,6 +288,11 @@ private fun GroupItemRow(
                                 .hoverable(summaryInteraction)
                                 .clickable { onFileClick(item.filePath) }
                                 .pointerHoverIcon(PointerIcon.Hand)
+                        } else if (isClickableUrl) {
+                            Modifier
+                                .hoverable(summaryInteraction)
+                                .clickable { onUrlClick(summaryText) }
+                                .pointerHoverIcon(PointerIcon.Hand)
                         } else Modifier
                     ),
             )
@@ -286,34 +301,43 @@ private fun GroupItemRow(
             if (item.diffAdditions > 0) {
                 Text(
                     text = "+${item.diffAdditions}",
-                    style = TextStyle(fontSize = 10.sp, color = colors.diffAddFg),
+                    style = TextStyle(fontSize = scaledSp(10), color = colors.diffAddFg),
                 )
                 Spacer(Modifier.width(4.dp))
             }
             if (item.diffDeletions > 0) {
                 Text(
                     text = "-${item.diffDeletions}",
-                    style = TextStyle(fontSize = 10.sp, color = colors.diffDelFg),
+                    style = TextStyle(fontSize = scaledSp(10), color = colors.diffDelFg),
                 )
                 Spacer(Modifier.width(4.dp))
             }
 
             // Action buttons (show diff / revert) for edit items
-            if (isHovered && item.status == ToolStatus.COMPLETED && item.expandable != null) {
-                if (onShowDiff != null) {
-                    ToolActionButton(icon = "\u2194", tooltip = "Diff", onClick = onShowDiff)
-                    Spacer(Modifier.width(2.dp))
-                }
-                if (onRevert != null) {
-                    ToolActionButton(icon = "\u21A9", tooltip = "Revert", onClick = onRevert)
-                    Spacer(Modifier.width(2.dp))
+            DisableSelection {
+                if (isHovered && item.status == ToolStatus.COMPLETED && item.expandable != null) {
+                    if (onShowDiff != null) {
+                        ToolActionButton(icon = "\u2194", tooltip = "Diff", onClick = onShowDiff)
+                        Spacer(Modifier.width(2.dp))
+                    }
+                    if (onRevert != null) {
+                        var showRevertConfirm by remember { mutableStateOf(false) }
+                        ToolActionButton(icon = "\u21A9", tooltip = "Revert", onClick = { showRevertConfirm = true })
+                        if (showRevertConfirm) {
+                            RevertConfirmPopup(
+                                onConfirm = { showRevertConfirm = false; onRevert() },
+                                onDismiss = { showRevertConfirm = false },
+                            )
+                        }
+                        Spacer(Modifier.width(2.dp))
+                    }
                 }
             }
 
             Spacer(Modifier.width(4.dp))
 
             // Item status
-            ToolStatusBadge(status = item.status, compact = true)
+            ToolStatusBadge(status = item.status)
         }
 
         // Expandable content for this item
@@ -353,7 +377,7 @@ private fun GroupItemRow(
                         Text(
                             text = content.text.take(2000),
                             style = TextStyle(
-                                fontSize = 12.sp,
+                                fontSize = scaledSp(12),
                                 fontFamily = FontFamily.Monospace,
                                 color = colors.textPrimary,
                             ),
@@ -372,7 +396,7 @@ private fun GroupItemRow(
                                 .verticalScroll(mdScrollState)
                                 .padding(horizontal = 12.dp, vertical = 8.dp),
                         ) {
-                            ComposeMarkdownContent(markdown = content.text, selectable = true)
+                            ComposeMarkdownContent(markdown = content.text)
                         }
                     }
                     null -> {}
@@ -398,4 +422,10 @@ private fun getCategoryLabel(category: ToolCategoryType): String = when (categor
     ToolCategoryType.SEARCH -> "Search"
     ToolCategoryType.SKILL -> "Skills"
     ToolCategoryType.OTHER -> "Tools"
+}
+
+private fun isHttpUrl(text: String): Boolean {
+    val trimmed = text.trim()
+    return trimmed.startsWith("http://", ignoreCase = true) ||
+        trimmed.startsWith("https://", ignoreCase = true)
 }

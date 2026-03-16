@@ -1,7 +1,10 @@
 package ru.dsudomoin.claudecodegui.settings
 
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.options.Configurable
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.ComboBox
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
@@ -15,8 +18,10 @@ import ru.dsudomoin.claudecodegui.service.LanguageChangeListener
 import ru.dsudomoin.claudecodegui.service.OAuthCredentialService
 import ru.dsudomoin.claudecodegui.service.SettingsService
 import java.awt.FlowLayout
+import java.io.File
 import javax.swing.DefaultComboBoxModel
 import javax.swing.DefaultListCellRenderer
+import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JList
 import javax.swing.JPanel
@@ -142,10 +147,24 @@ class ClaudeSettingsConfigurable : Configurable {
         val detectedClaude = NodeDetector.detectClaude() ?: "not found"
         val sdkVersion = BridgeManager.detectSdkVersion() ?: UcuBundle.message("settings.sdkNotInstalled")
 
+        // Buttons to open global Claude config files
+        val openSettingsButton = JButton(UcuBundle.message("settings.openGlobalSettings")).apply {
+            toolTipText = UcuBundle.message("settings.openGlobalSettings.desc")
+            addActionListener { openGlobalSettingsJson() }
+        }
+        val openClaudeMdButton = JButton(UcuBundle.message("settings.openClaudeMd")).apply {
+            toolTipText = UcuBundle.message("settings.openClaudeMd.desc")
+            addActionListener { openGlobalClaudeMd() }
+        }
+
         panel = FormBuilder.createFormBuilder()
             .addComponent(loginStatus)
             .addLabeledComponent(UcuBundle.message("settings.sdkVersion"), JBLabel(sdkVersion).apply {
                 foreground = JBColor.GRAY
+            })
+            .addComponent(JPanel(FlowLayout(FlowLayout.LEFT, 0, 4)).apply {
+                add(openSettingsButton)
+                add(openClaudeMdButton)
             })
             .addSeparator()
             .addLabeledComponent(UcuBundle.message("settings.language") + ":", languageCombo!!)
@@ -263,7 +282,7 @@ class ClaudeSettingsConfigurable : Configurable {
         val info = OAuthCredentialService.getInstance().getLoginInfo()
 
         val statusLabel = JBLabel().apply {
-            if (info.loggedIn && !info.expired) {
+            if (info.loggedIn && (!info.expired || info.hasRefreshToken)) {
                 text = UcuBundle.message("settings.loggedIn", info.source)
                 foreground = JBColor.namedColor("Claude.StatusOk", JBColor(0x2E7D32, 0x81C784))
             } else if (info.loggedIn && info.expired) {
@@ -282,6 +301,31 @@ class ClaudeSettingsConfigurable : Configurable {
             })
             add(statusLabel)
         }
+    }
+
+    private fun openGlobalSettingsJson() {
+        openFileInEditor("/.claude/settings.json", "{}\n")
+    }
+
+    private fun openGlobalClaudeMd() {
+        openFileInEditor("/.claude/CLAUDE.md", "# Global Claude Instructions\n")
+    }
+
+    private fun openFileInEditor(relativePath: String, defaultContent: String) {
+        val file = File(System.getProperty("user.home") + relativePath)
+
+        // Create file with default content if it doesn't exist
+        if (!file.exists()) {
+            file.parentFile?.mkdirs()
+            file.writeText(defaultContent)
+        }
+
+        // Refresh VFS and open in editor after the modal Settings dialog closes
+        val vFile = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(file) ?: return
+        val project = ProjectManager.getInstance().openProjects.firstOrNull() ?: return
+        com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater({
+            FileEditorManager.getInstance(project).openFile(vFile, true)
+        }, com.intellij.openapi.application.ModalityState.nonModal())
     }
 
     override fun isModified(): Boolean {

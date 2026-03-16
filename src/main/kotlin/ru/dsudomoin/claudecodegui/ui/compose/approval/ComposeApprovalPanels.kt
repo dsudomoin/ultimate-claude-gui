@@ -34,7 +34,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import ru.dsudomoin.claudecodegui.ui.compose.theme.scaledSp
 import org.jetbrains.jewel.ui.component.Text
 import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.ui.approval.BashPayload
@@ -85,7 +85,7 @@ fun ComposeApprovalPanel(
                 text = request.title,
                 style = TextStyle(
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 13.sp,
+                    fontSize = scaledSp(13),
                     color = colors.textPrimary,
                 ),
             )
@@ -126,7 +126,7 @@ private fun BashContent(request: ToolApprovalRequest) {
         Spacer(Modifier.height(4.dp))
         Text(
             text = desc,
-            style = TextStyle(fontSize = 11.sp, color = colors.textSecondary),
+            style = TextStyle(fontSize = scaledSp(11), color = colors.textSecondary),
         )
     }
 }
@@ -139,7 +139,7 @@ private fun EditContent(request: ToolApprovalRequest) {
     if (details.isNotBlank()) {
         Text(
             text = details,
-            style = TextStyle(fontSize = 12.sp, color = colors.accent),
+            style = TextStyle(fontSize = scaledSp(12), color = colors.accent),
         )
     }
 }
@@ -155,7 +155,7 @@ private fun WriteContent(request: ToolApprovalRequest) {
             val fileName = payload.filePath.substringAfterLast('/')
             Text(
                 text = fileName,
-                style = TextStyle(fontSize = 12.sp, color = colors.accent),
+                style = TextStyle(fontSize = scaledSp(12), color = colors.accent),
             )
         }
 
@@ -164,7 +164,7 @@ private fun WriteContent(request: ToolApprovalRequest) {
         val lines = payload.content.lines().size
         Text(
             text = "$bytes bytes \u00b7 $lines lines",
-            style = TextStyle(fontSize = 11.sp, color = colors.textSecondary),
+            style = TextStyle(fontSize = scaledSp(11), color = colors.textSecondary),
             modifier = Modifier.padding(top = 2.dp),
         )
 
@@ -185,7 +185,7 @@ private fun GenericContent(request: ToolApprovalRequest) {
     if (request.details.isNotBlank()) {
         Text(
             text = request.details.take(500),
-            style = TextStyle(fontSize = 11.sp, color = colors.textSecondary),
+            style = TextStyle(fontSize = scaledSp(11), color = colors.textSecondary),
         )
     }
 }
@@ -200,7 +200,7 @@ private fun CodePreview(
     Text(
         text = text,
         style = TextStyle(
-            fontSize = 12.sp,
+            fontSize = scaledSp(12),
             fontFamily = FontFamily.Monospace,
             color = colors.textPrimary,
         ),
@@ -268,7 +268,7 @@ private fun ActionButton(
     Text(
         text = text,
         style = TextStyle(
-            fontSize = 12.sp,
+            fontSize = scaledSp(12),
             fontWeight = FontWeight.Medium,
             color = textColor,
         ),

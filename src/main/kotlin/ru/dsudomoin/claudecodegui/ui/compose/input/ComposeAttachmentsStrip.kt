@@ -38,7 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import ru.dsudomoin.claudecodegui.ui.compose.theme.scaledSp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.jewel.ui.component.Text
@@ -176,7 +176,7 @@ private fun ImageChip(
             }
             Text(
                 text = displayName,
-                style = TextStyle(fontSize = 10.sp, color = colors.textSecondary),
+                style = TextStyle(fontSize = scaledSp(10), color = colors.textSecondary),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -230,7 +230,7 @@ private fun MentionChip(
         Spacer(Modifier.width(4.dp))
         Text(
             text = mention.fileName,
-            style = TextStyle(fontSize = 11.sp, color = colors.textPrimary),
+            style = TextStyle(fontSize = scaledSp(11), color = colors.textPrimary),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -265,7 +265,7 @@ fun ComposeFileContextChip(
         Spacer(Modifier.width(4.dp))
         Text(
             text = "${context.fileName}${context.lineRange}",
-            style = TextStyle(fontSize = 11.sp, color = colors.textPrimary),
+            style = TextStyle(fontSize = scaledSp(11), color = colors.textPrimary),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -371,7 +371,7 @@ private fun RemoveButton(
         Text(
             text = "\u2715",
             style = TextStyle(
-                fontSize = 9.sp,
+                fontSize = scaledSp(9),
                 fontWeight = FontWeight.Bold,
                 color = colors.textSecondary,
             ),

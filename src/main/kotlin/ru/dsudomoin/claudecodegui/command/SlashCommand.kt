@@ -54,6 +54,9 @@ object SlashCommandRegistry {
     /** Get all visible commands (local + SDK). */
     fun all(): List<SlashCommand> = LOCAL_COMMANDS + sdkCommands
 
+    /** Number of currently visible SDK commands. */
+    fun sdkCount(): Int = sdkCommands.size
+
     /** Filter commands by prefix (for autocomplete). */
     fun filter(prefix: String): List<SlashCommand> =
         all().filter { it.name.startsWith(prefix, ignoreCase = true) }

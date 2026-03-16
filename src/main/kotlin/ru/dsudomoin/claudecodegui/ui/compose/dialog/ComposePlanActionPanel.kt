@@ -59,7 +59,7 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import ru.dsudomoin.claudecodegui.ui.compose.theme.scaledSp
 import org.jetbrains.jewel.foundation.ExperimentalJewelApi
 import org.jetbrains.jewel.ui.component.Text
 import com.intellij.openapi.diagnostic.Logger
@@ -130,7 +130,7 @@ fun ComposePlanActionPanel(
                 Text(
                     text = UcuBundle.message("permission.planTitle"),
                     style = TextStyle(
-                        fontSize = 15.sp,
+                        fontSize = scaledSp(15),
                         fontWeight = FontWeight.SemiBold,
                         color = colors.textPrimary,
                     ),
@@ -138,7 +138,7 @@ fun ComposePlanActionPanel(
                 Spacer(Modifier.height(2.dp))
                 Text(
                     text = UcuBundle.message("permission.planDescription"),
-                    style = TextStyle(fontSize = 12.sp, color = colors.textSecondary),
+                    style = TextStyle(fontSize = scaledSp(12), color = colors.textSecondary),
                 )
             }
         }
@@ -274,7 +274,7 @@ private fun CanvasPlanButton(
 
     val textMeasurer = rememberTextMeasurer()
     val textStyle = TextStyle(
-        fontSize = 13.sp,
+        fontSize = scaledSp(13),
         fontWeight = FontWeight.Bold,
         color = textColor,
     )

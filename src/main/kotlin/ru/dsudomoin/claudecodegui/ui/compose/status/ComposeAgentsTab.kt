@@ -25,7 +25,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import ru.dsudomoin.claudecodegui.ui.compose.theme.scaledSp
 import org.jetbrains.jewel.ui.component.Text
 import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
@@ -95,7 +95,7 @@ private fun AgentRow(
         Text(
             text = agent.description,
             style = TextStyle(
-                fontSize = 12.sp,
+                fontSize = scaledSp(12),
                 color = colors.textPrimary,
             ),
             maxLines = 1,
@@ -121,7 +121,7 @@ private fun AgentStatusIcon(status: SubagentStatus) {
             Text(
                 text = "\u2713",
                 style = TextStyle(
-                    fontSize = 12.sp,
+                    fontSize = scaledSp(12),
                     color = colors.statusSuccess,
                 ),
             )
@@ -131,7 +131,7 @@ private fun AgentStatusIcon(status: SubagentStatus) {
             Text(
                 text = "\u2717",
                 style = TextStyle(
-                    fontSize = 12.sp,
+                    fontSize = scaledSp(12),
                     color = colors.statusError,
                 ),
             )
@@ -146,7 +146,7 @@ private fun TypeBadge(type: String) {
     Text(
         text = type,
         style = TextStyle(
-            fontSize = 10.sp,
+            fontSize = scaledSp(10),
             fontWeight = FontWeight.Bold,
             color = colors.textSecondary,
         ),

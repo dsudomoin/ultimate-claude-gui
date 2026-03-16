@@ -6,7 +6,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -16,6 +15,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
@@ -23,8 +23,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import ru.dsudomoin.claudecodegui.ui.compose.theme.scaledSp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import org.jetbrains.jewel.ui.component.Text
 import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.core.model.ContentBlock
@@ -32,6 +34,7 @@ import ru.dsudomoin.claudecodegui.core.model.Message
 import ru.dsudomoin.claudecodegui.core.model.Role
 import ru.dsudomoin.claudecodegui.core.model.ToolSummaryExtractor
 import ru.dsudomoin.claudecodegui.ui.compose.common.ComposeMarkdownContent
+import ru.dsudomoin.claudecodegui.ui.compose.common.LinkifiedText
 import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
 import javax.imageio.ImageIO
 
@@ -94,19 +97,21 @@ fun ComposeMessageBubble(
     streamingState: StreamingState? = null,
     contentFlow: List<ContentFlowItem>? = null,
     onFileClick: ((String) -> Unit)? = null,
+    onUrlClick: ((String) -> Unit)? = null,
     onToolShowDiff: ((ExpandableContent) -> Unit)? = null,
     onToolRevert: ((ExpandableContent) -> Unit)? = null,
     onStopTask: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     when (message.role) {
-        Role.USER -> UserBubble(message = message, modifier = modifier)
+        Role.USER -> UserBubble(message = message, onUrlClick = onUrlClick, modifier = modifier)
         Role.ASSISTANT -> AssistantBubble(
             message = message,
             streaming = streaming,
             streamingState = streamingState,
             contentFlow = contentFlow,
             onFileClick = onFileClick,
+            onUrlClick = onUrlClick,
             onToolShowDiff = onToolShowDiff,
             onToolRevert = onToolRevert,
             onStopTask = onStopTask,
@@ -120,6 +125,7 @@ fun ComposeMessageBubble(
 @Composable
 private fun UserBubble(
     message: Message,
+    onUrlClick: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalClaudeColors.current
@@ -160,41 +166,50 @@ private fun UserBubble(
                 }
                 .padding(horizontal = 14.dp, vertical = 10.dp),
         ) {
-            SelectionContainer {
-                Column {
-                    message.content.forEach { block ->
-                        when (block) {
-                            is ContentBlock.Text -> {
+            Column {
+                message.content.forEach { block ->
+                    when (block) {
+                        is ContentBlock.Text -> {
+                            if (onUrlClick != null) {
+                                LinkifiedText(
+                                    text = block.text,
+                                    style = TextStyle(fontSize = scaledSp(13), color = fgColor),
+                                    linkColor = colors.accent,
+                                    onUrlClick = onUrlClick,
+                                )
+                            } else {
                                 Text(
                                     text = block.text,
-                                    style = TextStyle(fontSize = 13.sp, color = fgColor),
+                                    style = TextStyle(fontSize = scaledSp(13), color = fgColor),
                                 )
                             }
-                    is ContentBlock.Image -> {
-                        val bitmap = remember(block.source) {
-                            try {
-                                ImageIO.read(java.io.File(block.source))?.toComposeImageBitmap()
-                            } catch (_: Exception) { null }
                         }
-                        if (bitmap != null) {
-                            Image(
-                                bitmap = bitmap,
-                                contentDescription = block.source.substringAfterLast('/'),
-                                contentScale = ContentScale.Fit,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(max = 200.dp)
-                                    .clip(RoundedCornerShape(8.dp)),
-                            )
-                        } else {
-                            Text(
-                                text = "\uD83D\uDDBC ${block.source.substringAfterLast('/')}",
-                                style = TextStyle(fontSize = 12.sp, color = fgColor.copy(alpha = 0.7f)),
-                            )
+                        is ContentBlock.Image -> {
+                            val bitmap by produceState<ImageBitmap?>(null, block.source) {
+                                value = withContext(Dispatchers.IO) {
+                                    try {
+                                        ImageIO.read(java.io.File(block.source))?.toComposeImageBitmap()
+                                    } catch (_: Exception) { null }
+                                }
+                            }
+                            if (bitmap != null) {
+                                Image(
+                                    bitmap = bitmap!!,
+                                    contentDescription = block.source.substringAfterLast('/'),
+                                    contentScale = ContentScale.Fit,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(max = 200.dp)
+                                        .clip(RoundedCornerShape(8.dp)),
+                                )
+                            } else {
+                                Text(
+                                    text = "\uD83D\uDDBC ${block.source.substringAfterLast('/')}",
+                                    style = TextStyle(fontSize = scaledSp(12), color = fgColor.copy(alpha = 0.7f)),
+                                )
+                            }
                         }
-                    }
-                            else -> {} // Other blocks shouldn't appear in user messages
-                        }
+                        else -> {} // Other blocks shouldn't appear in user messages
                     }
                 }
             }
@@ -211,6 +226,7 @@ private fun AssistantBubble(
     streamingState: StreamingState?,
     contentFlow: List<ContentFlowItem>?,
     onFileClick: ((String) -> Unit)?,
+    onUrlClick: ((String) -> Unit)?,
     onToolShowDiff: ((ExpandableContent) -> Unit)?,
     onToolRevert: ((ExpandableContent) -> Unit)?,
     onStopTask: ((String) -> Unit)?,
@@ -228,6 +244,7 @@ private fun AssistantBubble(
                 state = streamingState,
                 contentFlow = contentFlow.orEmpty(),
                 onFileClick = onFileClick,
+                onUrlClick = onUrlClick,
                 onToolShowDiff = onToolShowDiff,
                 onToolRevert = onToolRevert,
                 onStopTask = onStopTask,
@@ -237,6 +254,7 @@ private fun AssistantBubble(
             FinishedAssistantContent(
                 message = message,
                 onFileClick = onFileClick,
+                onUrlClick = onUrlClick,
                 onToolShowDiff = onToolShowDiff,
                 onToolRevert = onToolRevert,
             )
@@ -249,15 +267,11 @@ private fun StreamingAssistantContent(
     state: StreamingState,
     contentFlow: List<ContentFlowItem>,
     onFileClick: ((String) -> Unit)?,
+    onUrlClick: ((String) -> Unit)? = null,
     onToolShowDiff: ((ExpandableContent) -> Unit)? = null,
     onToolRevert: ((ExpandableContent) -> Unit)? = null,
     onStopTask: ((String) -> Unit)? = null,
 ) {
-    // Timer row
-    if (state.isTimerRunning) {
-        StreamingTimerRow()
-    }
-
     // Thinking panel (collapsible, with streaming animation)
     if (state.isThinkingVisible && state.thinkingText.isNotEmpty()) {
         ComposeThinkingSection(
@@ -277,11 +291,11 @@ private fun StreamingAssistantContent(
                         key("text_$index") {
                             if (index == lastTextIndex) {
                                 // Live (growing) segment — always re-render
-                                ComposeMarkdownContent(markdown = item.text, selectable = false)
+                                ComposeMarkdownContent(markdown = item.text, onUrlClick = onUrlClick ?: {}, selectable = false)
                             } else {
                                 // Frozen segment (before tools) — memoize to avoid re-parse
                                 val memoizedText = remember(item.text) { item.text }
-                                ComposeMarkdownContent(markdown = memoizedText, selectable = false)
+                                ComposeMarkdownContent(markdown = memoizedText, onUrlClick = onUrlClick ?: {}, selectable = false)
                             }
                         }
                     }
@@ -299,6 +313,7 @@ private fun StreamingAssistantContent(
                         ComposeToolUseBlock(
                             data = item.data,
                             onFileClick = onFileClick,
+                            onUrlClick = onUrlClick,
                             onShowDiff = item.data.expandable?.let { exp -> onToolShowDiff?.let { cb -> { cb(exp) } } },
                             onRevert = item.data.expandable?.let { exp -> onToolRevert?.let { cb -> { cb(exp) } } },
                             onStopTask = item.data.taskId?.let { tid -> onStopTask?.let { cb -> { cb(tid) } } },
@@ -311,6 +326,7 @@ private fun StreamingAssistantContent(
                         ComposeToolGroupBlock(
                             data = item.data,
                             onFileClick = onFileClick,
+                            onUrlClick = onUrlClick,
                             onToolShowDiff = onToolShowDiff,
                             onToolRevert = onToolRevert,
                             modifier = Modifier.padding(vertical = 2.dp),
@@ -326,7 +342,12 @@ private fun StreamingAssistantContent(
         }
     } else if (state.responseText.isNotBlank()) {
         // Fallback: show raw response as markdown
-        ComposeMarkdownContent(markdown = state.responseText, selectable = false)
+        ComposeMarkdownContent(markdown = state.responseText, onUrlClick = onUrlClick ?: {}, selectable = false)
+    }
+
+    // Keep "Generating response..." as the bottom-most streaming element.
+    if (state.isTimerRunning) {
+        StreamingTimerRow()
     }
 }
 
@@ -334,6 +355,7 @@ private fun StreamingAssistantContent(
 private fun FinishedAssistantContent(
     message: Message,
     onFileClick: ((String) -> Unit)?,
+    onUrlClick: ((String) -> Unit)? = null,
     onToolShowDiff: ((ExpandableContent) -> Unit)? = null,
     onToolRevert: ((ExpandableContent) -> Unit)? = null,
 ) {
@@ -362,7 +384,7 @@ private fun FinishedAssistantContent(
         when (item) {
             is FinishedRenderItem.MarkdownText -> {
                 key("finished_text_${index}_${item.text.hashCode()}") {
-                    ComposeMarkdownContent(markdown = item.text, selectable = true)
+                    ComposeMarkdownContent(markdown = item.text, onUrlClick = onUrlClick ?: {})
                 }
             }
             is FinishedRenderItem.CompactBoundaryItem -> {
@@ -379,14 +401,16 @@ private fun FinishedAssistantContent(
                 }
             }
             is FinishedRenderItem.ImageItem -> {
-                val bitmap = remember(item.source) {
-                    try {
-                        ImageIO.read(java.io.File(item.source))?.toComposeImageBitmap()
-                    } catch (_: Exception) { null }
+                val bitmap by produceState<ImageBitmap?>(null, item.source) {
+                    value = withContext(Dispatchers.IO) {
+                        try {
+                            ImageIO.read(java.io.File(item.source))?.toComposeImageBitmap()
+                        } catch (_: Exception) { null }
+                    }
                 }
                 if (bitmap != null) {
                     Image(
-                        bitmap = bitmap,
+                        bitmap = bitmap!!,
                         contentDescription = item.source.substringAfterLast('/'),
                         contentScale = ContentScale.Fit,
                         modifier = Modifier
@@ -397,7 +421,7 @@ private fun FinishedAssistantContent(
                 } else {
                     Text(
                         text = "\uD83D\uDDBC ${item.source.substringAfterLast('/')}",
-                        style = TextStyle(fontSize = 12.sp, color = colors.textSecondary),
+                        style = TextStyle(fontSize = scaledSp(12), color = colors.textSecondary),
                     )
                 }
             }
@@ -406,6 +430,7 @@ private fun FinishedAssistantContent(
                     ComposeToolUseBlock(
                         data = item.data,
                         onFileClick = onFileClick,
+                        onUrlClick = onUrlClick,
                         onShowDiff = item.data.expandable?.let { exp -> onToolShowDiff?.let { cb -> { cb(exp) } } },
                         onRevert = item.data.expandable?.let { exp -> onToolRevert?.let { cb -> { cb(exp) } } },
                         modifier = Modifier.padding(vertical = 2.dp),
@@ -417,6 +442,7 @@ private fun FinishedAssistantContent(
                     ComposeToolGroupBlock(
                         data = item.data,
                         onFileClick = onFileClick,
+                        onUrlClick = onUrlClick,
                         onToolShowDiff = onToolShowDiff,
                         onToolRevert = onToolRevert,
                         modifier = Modifier.padding(vertical = 2.dp),
@@ -454,17 +480,17 @@ private fun StreamingTimerRow() {
         // Spinner indicator (simple text-based)
         Text(
             text = "\u23F3",
-            style = TextStyle(fontSize = 11.sp),
+            style = TextStyle(fontSize = scaledSp(11)),
         )
         Spacer(Modifier.padding(start = 4.dp))
         Text(
             text = UcuBundle.message("streaming.generating"),
-            style = TextStyle(fontSize = 11.sp, color = Color.Gray),
+            style = TextStyle(fontSize = scaledSp(11), color = Color.Gray),
         )
         Spacer(Modifier.padding(start = 4.dp))
         Text(
             text = timeText,
-            style = TextStyle(fontSize = 11.sp, color = Color.Gray),
+            style = TextStyle(fontSize = scaledSp(11), color = Color.Gray),
         )
     }
 }
@@ -514,13 +540,13 @@ private fun CompactBoundaryBlock(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = "\u2702",
-                        style = TextStyle(fontSize = 11.sp, color = colors.accentSecondary),
+                        style = TextStyle(fontSize = scaledSp(11), color = colors.accentSecondary),
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
                         text = UcuBundle.message("system.compactBoundary.title"),
                         style = TextStyle(
-                            fontSize = 10.sp,
+                            fontSize = scaledSp(10),
                             color = colors.textSecondary,
                             fontWeight = FontWeight.SemiBold,
                         ),
@@ -563,7 +589,7 @@ private fun CompactBoundaryBlock(
             Text(
                 text = triggerLabel.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() },
                 style = TextStyle(
-                    fontSize = 11.sp,
+                    fontSize = scaledSp(11),
                     color = colors.textPrimary,
                     fontWeight = FontWeight.SemiBold,
                 ),
@@ -572,7 +598,7 @@ private fun CompactBoundaryBlock(
             Text(
                 text = tokenLabel,
                 style = TextStyle(
-                    fontSize = 11.sp,
+                    fontSize = scaledSp(11),
                     color = colors.textSecondary,
                 ),
             )
@@ -623,23 +649,21 @@ private fun CodeBlock(
             Text(
                 text = language,
                 style = TextStyle(
-                    fontSize = 10.sp,
+                    fontSize = scaledSp(10),
                     fontStyle = FontStyle.Italic,
                     color = colors.textSecondary,
                 ),
                 modifier = Modifier.padding(bottom = 4.dp),
             )
         }
-        SelectionContainer {
-            Text(
-                text = code,
-                style = TextStyle(
-                    fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace,
-                    color = colors.textPrimary,
-                ),
-            )
-        }
+        Text(
+            text = code,
+            style = TextStyle(
+                fontSize = scaledSp(12),
+                fontFamily = FontFamily.Monospace,
+                color = colors.textPrimary,
+            ),
+        )
     }
 }
 
@@ -660,19 +684,18 @@ private fun buildFinishedExpandable(
         val markdown = buildSkillExpandableMarkdown(input, resultContent)
         if (markdown.isNotBlank()) return ExpandableContent.Markdown(markdown)
     }
-    if (lower in setOf("edit", "edit_file", "replace_string")) {
-        val diff = ToolSummaryExtractor.extractEditDiffStrings(input)
-        if (diff != null) {
-            val filePath = ToolSummaryExtractor.extractFilePath(input)
-            return ExpandableContent.Diff(diff.first, diff.second, filePath)
-        }
+    if (lower.startsWith("mcp__") && resultContent?.isNotBlank() == true) {
+        return ExpandableContent.PlainText(resultContent)
     }
-    if (lower in setOf("write", "write_to_file", "save-file", "create_file")) {
-        val content = ToolSummaryExtractor.extractWriteContent(input)
-        if (content != null && content.isNotBlank()) {
-            val filePath = ToolSummaryExtractor.extractFilePath(input)
-            return ExpandableContent.Code(content, filePath)
-        }
+    val diff = ToolSummaryExtractor.extractEditDiffStrings(input)
+    if (diff != null) {
+        val filePath = ToolSummaryExtractor.extractFilePath(input)
+        return ExpandableContent.Diff(diff.first, diff.second, filePath)
+    }
+    val content = ToolSummaryExtractor.extractWriteContent(input)
+    if (content != null && content.isNotBlank() && ToolSummaryExtractor.extractFilePath(input) != null) {
+        val filePath = ToolSummaryExtractor.extractFilePath(input)
+        return ExpandableContent.Code(content, filePath)
     }
     if (lower in setOf("bash", "run_terminal_cmd", "execute_command", "executecommand", "shell_command")) {
         val cmd = ToolSummaryExtractor.extractBashCommand(input)
@@ -781,11 +804,8 @@ private fun buildFinishedDiffStats(
     toolName: String,
     input: kotlinx.serialization.json.JsonObject,
 ): Pair<Int, Int> {
-    val lower = toolName.lowercase()
-    if (lower in setOf("edit", "edit_file", "replace_string")) {
-        val diff = ToolSummaryExtractor.extractEditDiffStrings(input)
-        if (diff != null) return computeDiffStats(diff.first, diff.second)
-    }
+    val diff = ToolSummaryExtractor.extractEditDiffStrings(input)
+    if (diff != null) return computeDiffStats(diff.first, diff.second)
     return 0 to 0
 }
 
@@ -801,9 +821,11 @@ private sealed interface FinishedRenderItem {
 }
 
 private fun streamingGroupKey(group: ToolGroupData, fallbackIndex: Int): String {
-    val idsKey = group.items.joinToString(separator = "_") { it.id }
-    val normalized = if (idsKey.isNotBlank()) idsKey else fallbackIndex.toString()
-    return "stream_group_${group.category}_$normalized"
+    // Use FIRST item's id as stable key — new items append to the group
+    // but must not change the key, otherwise Compose destroys the composition
+    // and resets local state (e.g. expanded = false).
+    val stableId = group.items.firstOrNull()?.id ?: fallbackIndex.toString()
+    return "stream_group_${group.category}_$stableId"
 }
 
 private fun finishedGroupKey(group: ToolGroupData, fallbackIndex: Int): String {
@@ -890,13 +912,13 @@ private fun buildFinishedRenderItems(
                 }
                 val expandable = buildFinishedExpandable(block.name, block.input, result?.content)
                 val (diffAdd, diffDel) = buildFinishedDiffStats(block.name, block.input)
-                val category = classifyToolCategoryLocal(block.name)
+                val category = classifyToolCategoryLocal(block.name, block.input)
                 val isFileLink = category == ToolCategoryType.READ || category == ToolCategoryType.EDIT
                 val toolFilePath = ToolSummaryExtractor.extractFilePath(block.input)
                 val toolData = ToolUseData(
                     id = block.id,
                     toolName = block.name,
-                    displayName = ToolSummaryExtractor.getToolDisplayName(block.name),
+                    displayName = ToolSummaryExtractor.getToolDisplayName(block.name, block.input),
                     summary = ToolSummaryExtractor.extractToolSummary(block.name, block.input),
                     status = status,
                     expandable = expandable,
@@ -920,7 +942,10 @@ private fun buildFinishedRenderItems(
     return items
 }
 
-private fun classifyToolCategoryLocal(toolName: String): ToolCategoryType {
+private fun classifyToolCategoryLocal(
+    toolName: String,
+    input: kotlinx.serialization.json.JsonObject,
+): ToolCategoryType {
     val lower = toolName.lowercase()
     return when {
         lower in setOf("read", "read_file") -> ToolCategoryType.READ
@@ -928,6 +953,8 @@ private fun classifyToolCategoryLocal(toolName: String): ToolCategoryType {
         lower in setOf("bash", "run_terminal_cmd", "execute_command", "executecommand", "shell_command") -> ToolCategoryType.BASH
         lower in setOf("grep", "search", "glob", "find", "list", "listfiles") -> ToolCategoryType.SEARCH
         lower in setOf("write", "write_to_file", "save-file", "create_file") -> ToolCategoryType.EDIT
+        ToolSummaryExtractor.hasEditLikePayload(input) -> ToolCategoryType.EDIT
+        ToolSummaryExtractor.hasWriteLikePayload(input) -> ToolCategoryType.EDIT
         lower in setOf("skill", "useskill", "runskill", "run_skill", "execute_skill") -> ToolCategoryType.SKILL
         else -> ToolCategoryType.OTHER
     }

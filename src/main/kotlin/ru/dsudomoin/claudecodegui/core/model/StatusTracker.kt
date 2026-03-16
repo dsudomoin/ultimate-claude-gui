@@ -6,6 +6,7 @@ import ru.dsudomoin.claudecodegui.ui.status.FileChangeType
 import ru.dsudomoin.claudecodegui.ui.status.SubagentInfo
 import ru.dsudomoin.claudecodegui.ui.status.SubagentStatus
 import ru.dsudomoin.claudecodegui.ui.status.TodoItem
+import ru.dsudomoin.claudecodegui.ui.status.TodoStatus
 
 /**
  * Tracks status data (todos, file changes, subagents) without any UI dependency.
@@ -24,6 +25,22 @@ class StatusTracker {
     fun updateTodos(newTodos: List<TodoItem>) {
         todos.clear()
         todos.addAll(newTodos)
+    }
+
+    /**
+     * Marks all currently in-progress todos as completed.
+     * Returns the number of items changed.
+     */
+    fun completeInProgressTodos(): Int {
+        var changed = 0
+        for (i in todos.indices) {
+            val item = todos[i]
+            if (item.status == TodoStatus.IN_PROGRESS) {
+                todos[i] = item.copy(status = TodoStatus.COMPLETED)
+                changed++
+            }
+        }
+        return changed
     }
 
     fun trackFileChange(toolName: String, filePath: String, oldString: String, newString: String) {
@@ -67,6 +84,16 @@ class StatusTracker {
     fun completeSubagent(id: String, error: Boolean = false) {
         subagents[id]?.let {
             subagents[id] = it.copy(status = if (error) SubagentStatus.ERROR else SubagentStatus.COMPLETED)
+        }
+    }
+
+    /**
+     * Reverts a prematurely completed subagent back to RUNNING.
+     * Used when TASK_STARTED arrives after TOOL_RESULT for background tasks.
+     */
+    fun resetSubagentToRunning(id: String) {
+        subagents[id]?.let {
+            subagents[id] = it.copy(status = SubagentStatus.RUNNING)
         }
     }
 

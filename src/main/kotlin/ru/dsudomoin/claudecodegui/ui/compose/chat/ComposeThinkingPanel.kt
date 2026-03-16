@@ -15,9 +15,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -27,7 +29,7 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import ru.dsudomoin.claudecodegui.ui.compose.theme.scaledSp
 import org.jetbrains.jewel.ui.component.Text
 import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
@@ -87,16 +89,30 @@ fun ComposeThinkingPanel(
                 .pointerHoverIcon(PointerIcon.Hand)
                 .padding(vertical = 2.dp),
         ) {
+            // Track thinking duration locally
+            var elapsedSeconds by remember { mutableIntStateOf(0) }
+            LaunchedEffect(isStreaming, isFinished) {
+                if (isStreaming && !isFinished) {
+                    elapsedSeconds = 0
+                    while (true) {
+                        delay(1000)
+                        elapsedSeconds++
+                    }
+                }
+            }
+
             val indicator = if (collapsed) "\u25B6" else "\u25BC"
             val label = if (isStreaming && !isFinished) {
                 UcuBundle.message("thinking.active")
+            } else if (elapsedSeconds > 0) {
+                UcuBundle.message("thinking.duration", elapsedSeconds)
             } else {
                 UcuBundle.message("thinking.done")
             }
             Text(
                 text = "$indicator $label",
                 style = TextStyle(
-                    fontSize = 11.sp,
+                    fontSize = scaledSp(11),
                     color = colors.textSecondary,
                 ),
             )
@@ -113,7 +129,7 @@ fun ComposeThinkingPanel(
             Text(
                 text = text,
                 style = TextStyle(
-                    fontSize = 12.sp,
+                    fontSize = scaledSp(12),
                     color = colors.textSecondary,
                 ),
                 modifier = Modifier.padding(top = 2.dp, bottom = 4.dp),
@@ -142,7 +158,7 @@ private fun PulsingThinkingIndicator() {
     Text(
         text = "\u2B24",
         style = TextStyle(
-            fontSize = 6.sp,
+            fontSize = scaledSp(6),
             color = colors.thinkingBorder,
         ),
         modifier = Modifier.alpha(alpha),

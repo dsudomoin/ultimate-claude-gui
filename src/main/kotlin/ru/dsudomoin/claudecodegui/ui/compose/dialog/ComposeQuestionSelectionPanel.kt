@@ -52,7 +52,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import ru.dsudomoin.claudecodegui.ui.compose.theme.scaledSp
 import org.jetbrains.jewel.ui.component.Text
 import ru.dsudomoin.claudecodegui.UcuBundle
 import ru.dsudomoin.claudecodegui.ui.compose.theme.LocalClaudeColors
@@ -123,7 +123,7 @@ fun ComposeQuestionSelectionPanel(
                     Text(
                         text = question.header,
                         style = TextStyle(
-                            fontSize = 11.sp,
+                            fontSize = scaledSp(11),
                             fontWeight = FontWeight.SemiBold,
                             color = colors.accent,
                         ),
@@ -134,7 +134,7 @@ fun ComposeQuestionSelectionPanel(
             if (questions.size > 1) {
                 Text(
                     text = "${currentIndex + 1} / ${questions.size}",
-                    style = TextStyle(fontSize = 11.sp, color = colors.textSecondary),
+                    style = TextStyle(fontSize = scaledSp(11), color = colors.textSecondary),
                 )
             }
         }
@@ -145,7 +145,7 @@ fun ComposeQuestionSelectionPanel(
         Text(
             text = question.question,
             style = TextStyle(
-                fontSize = 14.sp,
+                fontSize = scaledSp(14),
                 fontWeight = FontWeight.Medium,
                 color = colors.textPrimary,
             ),
@@ -224,7 +224,7 @@ fun ComposeQuestionSelectionPanel(
                             textFieldValue = newValue
                             customInputs[question.question] = newValue.text
                         },
-                        textStyle = TextStyle(fontSize = 13.sp, color = colors.textPrimary),
+                        textStyle = TextStyle(fontSize = scaledSp(13), color = colors.textPrimary),
                         cursorBrush = SolidColor(colors.accent),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -259,7 +259,7 @@ fun ComposeQuestionSelectionPanel(
                             if (textFieldValue.text.isEmpty()) {
                                 Text(
                                     text = UcuBundle.message("question.otherDesc"),
-                                    style = TextStyle(fontSize = 13.sp, color = colors.textSecondary),
+                                    style = TextStyle(fontSize = scaledSp(13), color = colors.textSecondary),
                                 )
                             }
                             innerTextField()
@@ -366,7 +366,7 @@ private fun OptionCard(
             Text(
                 text = label,
                 style = TextStyle(
-                    fontSize = 13.sp,
+                    fontSize = scaledSp(13),
                     fontWeight = FontWeight.SemiBold,
                     color = colors.textPrimary,
                 ),
@@ -376,7 +376,7 @@ private fun OptionCard(
                 Text(
                     text = description,
                     style = TextStyle(
-                        fontSize = 11.sp,
+                        fontSize = scaledSp(11),
                         color = colors.textSecondary,
                     ),
                 )
@@ -519,7 +519,7 @@ private fun ActionButton(
         Text(
             text = text,
             style = TextStyle(
-                fontSize = 13.sp,
+                fontSize = scaledSp(13),
                 fontWeight = if (isPrimary) FontWeight.SemiBold else FontWeight.Normal,
                 color = textColor,
             ),

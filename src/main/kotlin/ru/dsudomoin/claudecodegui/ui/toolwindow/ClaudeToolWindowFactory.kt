@@ -1,22 +1,37 @@
 package ru.dsudomoin.claudecodegui.ui.toolwindow
 
-import ru.dsudomoin.claudecodegui.UcuBundle
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.actionSystem.*
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.fileChooser.FileChooser
+import com.intellij.openapi.fileChooser.FileChooserDescriptor
+import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.FileEditorManagerEvent
+import com.intellij.openapi.fileEditor.FileEditorManagerListener
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.options.ShowSettingsUtil
+import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.project.guessProjectDir
+import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.content.ContentFactory
 import com.intellij.ui.content.ContentManagerEvent
 import com.intellij.ui.content.ContentManagerListener
+import kotlinx.coroutines.*
+import ru.dsudomoin.claudecodegui.UcuBundle
+import ru.dsudomoin.claudecodegui.core.session.SessionManager
 import ru.dsudomoin.claudecodegui.service.ProjectFileIndexService
+import ru.dsudomoin.claudecodegui.service.PromptEnhancer
 import ru.dsudomoin.claudecodegui.service.SettingsService
 import ru.dsudomoin.claudecodegui.ui.chat.ChatController
+import ru.dsudomoin.claudecodegui.ui.compose.markdown.FilePathLinkHandler
 import ru.dsudomoin.claudecodegui.ui.compose.input.AttachedImageData
 import ru.dsudomoin.claudecodegui.ui.compose.input.FileContextData
 import ru.dsudomoin.claudecodegui.ui.compose.input.MentionChipData
@@ -24,28 +39,15 @@ import ru.dsudomoin.claudecodegui.ui.compose.input.MentionSuggestionData
 import ru.dsudomoin.claudecodegui.ui.compose.toolwindow.ChatCallbacks
 import ru.dsudomoin.claudecodegui.ui.compose.toolwindow.createComposeChatPanel
 import ru.dsudomoin.claudecodegui.ui.diff.InteractiveDiffManager
-import ru.dsudomoin.claudecodegui.service.PromptEnhancer
 import ru.dsudomoin.claudecodegui.ui.theme.ThemeManager
-import ru.dsudomoin.claudecodegui.core.session.SessionManager
-import com.intellij.openapi.fileChooser.FileChooser
-import com.intellij.openapi.fileChooser.FileChooserDescriptor
-import com.intellij.openapi.fileEditor.FileEditorManager
-import com.intellij.openapi.fileEditor.FileEditorManagerEvent
-import com.intellij.openapi.fileEditor.FileEditorManagerListener
-import com.intellij.openapi.vfs.LocalFileSystem
-import com.intellij.openapi.vfs.VirtualFile
-import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
 import java.awt.BorderLayout
+import java.lang.Runnable
+import java.lang.System
 import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
 
-class ClaudeToolWindowFactory : ToolWindowFactory {
+class ClaudeToolWindowFactory : ToolWindowFactory, DumbAware {
 
     private val tabCounter = AtomicInteger(0)
 
@@ -198,6 +200,7 @@ class ChatContainerPanel(
     private val toolWindow: ToolWindow
 ) : JPanel(BorderLayout()), Disposable {
 
+    private val log = com.intellij.openapi.diagnostic.Logger.getInstance(ChatContainerPanel::class.java)
     val controller = ChatController(project)
     /** EDT dispatcher — avoids dependency on kotlinx-coroutines-swing (classloader conflicts). */
     private val edtDispatcher = object : CoroutineDispatcher() {
@@ -211,7 +214,8 @@ class ChatContainerPanel(
     private val callbacks = ChatCallbacks(
         onSendOrStop = {
             val hasText = controller.viewModel.inputText.trim().isNotBlank()
-            if (hasText) {
+            val hasImages = controller.viewModel.attachedImages.isNotEmpty()
+            if (hasText || hasImages) {
                 // Send or queue — sendFromCompose → onSendMessage handles queueing
                 controller.sendFromCompose()
             } else if (controller.viewModel.isSending) {
@@ -262,21 +266,15 @@ class ChatContainerPanel(
             controller.applyPromptSuggestion(suggestion)
         },
         onFileClick = { path -> openFileInEditor(path) },
+        onUrlClick = { url -> FilePathLinkHandler.handleUrlClick(url, project) },
         onToolShowDiff = { expandable ->
-            when (expandable) {
-                is ru.dsudomoin.claudecodegui.ui.compose.chat.ExpandableContent.Diff -> {
-                    val filePath = expandable.filePath
-                    if (filePath != null) {
-                        InteractiveDiffManager.showEditDiff(project, filePath, expandable.oldString, expandable.newString)
-                    }
-                }
-                is ru.dsudomoin.claudecodegui.ui.compose.chat.ExpandableContent.Code -> {
-                    val filePath = expandable.filePath
-                    if (filePath != null) {
-                        InteractiveDiffManager.showWriteDiff(project, filePath, expandable.content)
-                    }
-                }
-                else -> {}
+            val filePath = when (expandable) {
+                is ru.dsudomoin.claudecodegui.ui.compose.chat.ExpandableContent.Diff -> expandable.filePath
+                is ru.dsudomoin.claudecodegui.ui.compose.chat.ExpandableContent.Code -> expandable.filePath
+                else -> null
+            }
+            if (filePath != null) {
+                InteractiveDiffManager.showFileDiff(project, filePath)
             }
         },
         onToolRevert = { expandable ->
@@ -299,9 +297,7 @@ class ChatContainerPanel(
         onStopTask = { taskId -> controller.stopTask(taskId) },
         onStatusFileClick = { path -> openFileInEditor(path) },
         onStatusShowDiff = { summary ->
-            val original = summary.operations.joinToString("\n") { it.oldString }
-            val modified = summary.operations.joinToString("\n") { it.newString }
-            InteractiveDiffManager.showDiff(project, summary.filePath, original, modified)
+            InteractiveDiffManager.showFileDiff(project, summary.filePath)
         },
         onStatusUndoFile = { summary ->
             controller.undoStatusFileChange(summary)
@@ -343,6 +339,7 @@ class ChatContainerPanel(
         ProjectFileIndexService.getInstance(project).ensureIndexed()
         installClipboardPasteHandler()
         installEditorContextTracker()
+        installPanelVisibilityWatcher()
     }
 
     private var keyDispatcher: java.awt.KeyEventDispatcher? = null
@@ -369,14 +366,12 @@ class ChatContainerPanel(
             if (controller.viewModel.planPanelVisible) {
                 when (e.keyCode) {
                     java.awt.event.KeyEvent.VK_ENTER -> {
-                        com.intellij.openapi.diagnostic.Logger.getInstance(ChatContainerPanel::class.java)
-                            .info("KeyDispatcher: Enter pressed while plan visible → approvePlan()")
+                        log.info("KeyDispatcher: Enter pressed while plan visible -> approvePlan()")
                         controller.approvePlan()
                         return@KeyEventDispatcher true
                     }
                     java.awt.event.KeyEvent.VK_ESCAPE -> {
-                        com.intellij.openapi.diagnostic.Logger.getInstance(ChatContainerPanel::class.java)
-                            .info("KeyDispatcher: Escape pressed while plan visible → denyPlan()")
+                        log.info("KeyDispatcher: Escape pressed while plan visible -> denyPlan()")
                         controller.denyPlan()
                         return@KeyEventDispatcher true
                     }
@@ -411,6 +406,34 @@ class ChatContainerPanel(
         }
         java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager()
             .addKeyEventDispatcher(keyDispatcher)
+    }
+
+    /**
+     * Tracks show/hide lifecycle of this chat panel (tab selected/unselected).
+     *
+     * Real fix for tab-switch scroll flicker:
+     * 1) mark panel hidden so Compose stops persisting transient layout-driven scroll values;
+     * 2) on show, emit TAB_ACTIVATED to rebuild scroll state from persisted snapshot.
+     */
+    private fun installPanelVisibilityWatcher() {
+        val hierarchyListener = java.awt.event.HierarchyListener { event ->
+            val showingChanged =
+                event.changeFlags and java.awt.event.HierarchyEvent.SHOWING_CHANGED.toLong() != 0L
+            if (!showingChanged) return@HierarchyListener
+
+            val showingNow = composeChatPanel.isShowing
+            controller.viewModel.setPanelVisible(showingNow)
+            if (showingNow) {
+                controller.viewModel.requestTabActivated()
+            }
+        }
+        composeChatPanel.addHierarchyListener(hierarchyListener)
+        Disposer.register(this, Disposable {
+            composeChatPanel.removeHierarchyListener(hierarchyListener)
+        })
+
+        // Initial sync for first render.
+        controller.viewModel.setPanelVisible(composeChatPanel.isShowing)
     }
 
     private fun handleTransferableImage(transferable: java.awt.datatransfer.Transferable?): Boolean {
@@ -728,7 +751,8 @@ class ChatContainerPanel(
     private fun updateFileContextFromEditor() {
         val editorManager = FileEditorManager.getInstance(project)
         val editor = editorManager.selectedTextEditor
-        val vFile = editorManager.selectedFiles.firstOrNull()
+        val vFile = editor?.let { FileDocumentManager.getInstance().getFile(it.document) }
+            ?: editorManager.selectedFiles.firstOrNull()
 
         if (editor == null || vFile == null) {
             controller.viewModel.fileContext = null
@@ -739,14 +763,13 @@ class ChatContainerPanel(
         attachCaretListener(editor)
 
         val selection = editor.selectionModel
-        if (!selection.hasSelection()) {
-            controller.viewModel.fileContext = null
-            return
+        val lineRange = if (selection.hasSelection()) {
+            val startLine = editor.document.getLineNumber(selection.selectionStart) + 1
+            val endLine = editor.document.getLineNumber(selection.selectionEnd) + 1
+            if (startLine == endLine) "#L$startLine" else "#L$startLine-L$endLine"
+        } else {
+            ""
         }
-
-        val startLine = editor.document.getLineNumber(selection.selectionStart) + 1
-        val endLine = editor.document.getLineNumber(selection.selectionEnd) + 1
-        val lineRange = if (startLine == endLine) "#L$startLine" else "#L$startLine-L$endLine"
 
         controller.viewModel.fileContext = FileContextData(
             fileName = vFile.name,
@@ -765,6 +788,7 @@ class ChatContainerPanel(
             java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager()
                 .removeKeyEventDispatcher(it)
         }
+        // Focus restore watcher removed: scroll corruption fixed at source via focusProperties.
         currentCaretListener?.let { listener ->
             currentTrackedEditor?.caretModel?.removeCaretListener(listener)
         }
