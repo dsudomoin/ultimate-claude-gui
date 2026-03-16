@@ -604,7 +604,6 @@ class ChatController(
 
         messages.add(Message.assistant(""))
         syncMessagesToViewModel()
-        viewModel.requestScrollToBottom()
 
 
         val thinkingText = StringBuilder()
@@ -691,8 +690,7 @@ class ChatController(
             trackToolUseForStatus(id, name, input)
             syncStatusToViewModel()
             rebuildFlowNow()
-            viewModel.requestScrollToBottom()
-        }
+            }
 
         fun ensureSyntheticTaskTool(toolUseId: String?, description: String, taskType: String?) {
             if (toolUseId.isNullOrBlank()) return
@@ -811,8 +809,7 @@ class ChatController(
                             trackToolResultForStatus(event.id, event.isError)
                             syncStatusToViewModel()
                             rebuildFlowNow()
-                            viewModel.requestScrollToBottom()
-                        }
+                                            }
 
                         is StreamEvent.ToolProgress -> {
                             if (!event.taskId.isNullOrBlank() && event.toolUseId.isNotBlank()) {
@@ -1043,8 +1040,7 @@ class ChatController(
                             viewModel.isStreaming = false
                             viewModel.isSending = false
                             syncMessagesToViewModel()
-                            viewModel.requestScrollToBottom()
-
+                    
                             // Update tab title from session content
                             if (customTitle == null) {
                                 val title = sessionTitle
@@ -1128,8 +1124,7 @@ class ChatController(
                                     }
                                     messages[messages.lastIndex] = Message.assistant(displayBlocks)
                                     syncMessagesToViewModel()
-                                    viewModel.requestScrollToBottom()
-
+                            
                                     // Show plan approval panel and wait
                                     val deferred = CompletableDeferred<PlanResult>()
                                     planResultCallback = { result -> deferred.complete(result) }
@@ -1177,8 +1172,7 @@ class ChatController(
                                 val approvalRequest = ApprovalPanelFactory.classifyTool(event.toolName, event.input)
                                 approvalResultCallback = { allowed -> deferred.complete(allowed) }
                                 viewModel.pendingApproval = approvalRequest
-                                viewModel.requestScrollToBottom()
-                                val allowed = deferred.await()
+                                                        val allowed = deferred.await()
                                 provider.sendPermissionResponse(allowed)
                             }
                         }
@@ -1205,8 +1199,7 @@ class ChatController(
                             elicitationResultCallback = { allow, value -> deferred.complete(Pair(allow, value)) }
                             viewModel.elicitationData = event
                             viewModel.elicitationPanelVisible = true
-                            viewModel.requestScrollToBottom()
-                            val (allow, value) = deferred.await()
+                                                val (allow, value) = deferred.await()
                             viewModel.elicitationPanelVisible = false
                             viewModel.elicitationData = null
                             elicitationResultCallback = null
@@ -1441,7 +1434,6 @@ class ChatController(
                 maxTokens = maxTokens,
             )
         }
-        viewModel.requestForceScrollToBottom()
     }
 
     val sessionTitle: String

@@ -425,8 +425,6 @@ class ChatContainerPanel(
             controller.viewModel.setPanelVisible(showingNow)
             if (showingNow) {
                 controller.viewModel.requestTabActivated()
-            } else {
-                controller.viewModel.requestViewportFocusLost()
             }
         }
         composeChatPanel.addHierarchyListener(hierarchyListener)
